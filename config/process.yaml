@@ -1,0 +1,14 @@
+# Expected Procure-to-Pay sequence used for conformance checking.
+# Any case whose activity sequence doesn't match this (skipped step, extra step,
+# repeated step, out-of-order step) is flagged as a deviation in conformance.py.
+expected_sequence:
+  - Purchase Requisition
+  - Approval
+  - Purchase Order
+  - Goods Receipt
+  - Invoice Receipt
+  - Payment
+
+# Activities allowed to repeat without being counted as "rework" (e.g. multi-line invoices).
+allowed_repeats:
+  - Goods Receipt

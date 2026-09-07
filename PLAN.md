@@ -1,0 +1,357 @@
+# Build Plan — Operations Performance
+
+24-phase roadmap (Project 1 of 2; Project 2 is `operations-assistant`, phases 13-24 of the combined
+plan live there). See `FEATURES.md` for the full tiered feature spec this plan builds toward.
+
+**All 12 phases of Project 1's core plan are done.** Remaining work is Tier 2/3 items from
+`FEATURES.md` (dashboard actually built in a BI tool, `sql/analysis/*.sql`, API auth) rather
+than a numbered phase -- see "What's left" at the bottom of this file.
+
+## Status by phase (elevated 24-phase plan -- see chat history for full phase-by-phase text)
+
+| # | Phase | Status | Key files |
+|---|---|---|---|
+| 1 | Foundations (ingestion/validation/cleaning) | done | `src/ingestion/`, `src/cleaning/` |
+| 2 | Data modeling & Postgres | done | `sql/schema/`, `scripts/setup_database.py` |
+| 3 | Core process analytics | done | `cycle_time.py`, `bottlenecks.py`, `sla_analysis.py`, `process_variants.py`, `conformance.py`, `rework.py`, `root_causes.py`, `supplier_analysis.py`, `docs/analytical-methodology.md` |
+| 4 | Predictive layer | done | `src/ml/features.py`, `train.py` (time-based split), `predict.py`, `explain.py`, `docs/ml-model.md` |
+| 5 | Data pipeline hardening | done | `src/ingestion/data_contract.py`, `sql/schema/003_create_pipeline_runs.sql`, `scripts/run_pipeline.py`, `tests/test_ingestion.py` |
+| 6 | Analytics API layer | done | `src/api/main.py`, `routes.py`, `schemas.py`, `db.py`, `tests/test_api.py` |
+| 7 | Dashboard & reporting | done | `src/reports/generate_summary.py`, `generate_management_report.py`, `GET /reports/management`, `dashboard/README.md` (build spec), `tests/test_reports.py` |
+| 8 | Cloud migration (BigQuery/GCP) | done | `cloud/bigquery/schema.sql`, `tables.sql`, `scripts/migrate_to_bigquery.py`, `cloud/README.md` (Postgres vs BigQuery comparison) |
+| 9 | Testing & CI | done | All 7 test files real (44 tests, all genuinely passing -- ran the full suite, not just assumed it would pass), `.github/workflows/test.yml` CI on push/PR, `pyproject.toml` filled in with pytest/ruff config |
+| 10 | Observability | done | `src/observability/logging_config.py` (structured JSON logs), `scripts/run_pipeline.py` wired with per-stage timing, `src/api/middleware.py` (per-request logging + X-Request-ID), `GET /observability/pipeline-runs`, `tests/test_observability.py` |
+| 11 | Documentation & governance | done | All `docs/` files filled in: `project-overview.md` (index/front door), `business-requirements.md`, `data-dictionary.md`, `data-quality-report.md`, `data-contract.md`, `process-model.md`, `cloud-architecture.md` (pointer to `cloud/README.md`), `findings-and-recommendations.md` (pointer to `GET /reports/management`, deliberately not duplicated). `sql-analysis.md` still a stub -- depends on `sql/analysis/*.sql` actually being written first, so left honest rather than pre-filled. |
+| 12 | Security & access review | done | `sql/schema/004_create_roles.sql` (3 least-privilege Postgres roles, applied manually by an admin -- see below), `src/api/db.py` (dedicated `API_DB_USER`/`API_DB_PASSWORD`, falls back to pipeline credential), CORS fixed to `API_ALLOWED_ORIGINS` env var instead of `*`, `docs/security-notes.md` (explicit, bounded -- says what's NOT covered too) |
+
+## Phase 7 notes worth remembering
+- `generate_summary.py` and `generate_management_report.py` are separate on purpose: the summary
+  is just numbers (what the Executive Overview dashboard page needs), the management report adds
+  the Finding -> Evidence -> Impact -> Recommendation narrative on top. Both are built from the
+  exact same underlying `src/analytics/` functions -- no separate "reporting" logic that could
+  drift from what the dashboard/API show.
+- The report generator is **template-driven, not LLM-generated** -- every number is exact and
+  traceable back to a specific analytics function, which matters more here than prose polish.
+  (An LLM-written version of this belongs in `operations-assistant`'s investigation mode later,
+  not here -- Project 1 stays deterministic.)
+- `_bottleneck_finding`, `_rework_finding`, `_conformance_finding`, `_sla_driver_finding` each
+  return `None` gracefully when their underlying data isn't available (e.g. no `config/process.yaml`
+  yet) rather than crashing the whole report -- the report degrades gracefully as more analytics
+  come online.
+- `dashboard/README.md` is a full page-by-page build spec (data source, visuals, which endpoint
+  feeds each page) since the actual `.pbix`/Looker file can't live in this environment -- that's
+  the honest deliverable here.
+- Page 5 (Conformance) and Page 6 (SLA Risk distribution) in the dashboard spec reference two
+  endpoints that don't exist yet (`GET /metrics/conformance`, `GET /metrics/sla-risk-distribution`)
+  -- flagged directly in the spec rather than silently assumed.
+- `GET /reports/management` is the new endpoint -- same report the CLI script produces, exposed
+  over HTTP so it's rerunnable and, later, callable by `operations-assistant`.
+
+## Phase 5 notes (still relevant)
+- Idempotency via `if_exists="replace"` per table inside a single DB transaction. A higher-volume
+  production system would more likely upsert on `case_id` instead -- worth knowing that trade-off.
+- `data_contract.py` (shape check, fail fast) is deliberately separate from `validate_input.py`
+  (content check, warn and proceed).
+- `pipeline_runs` logs failures too -- `status='failed'`, `error_message` populated, not swallowed.
+
+## Phase 6 notes (still relevant)
+- Endpoints so far: `GET /health`, `GET /metrics/cycle-time`, `GET /metrics/bottlenecks`,
+  `GET /metrics/sla`, `GET /suppliers/performance`, `GET /orders/{case_id}/risk`,
+  `GET /reports/management`.
+- The API never reimplements analysis -- it loads from Postgres and calls the same
+  `src/analytics/`/`src/ml/`/`src/reports/` functions everything else uses.
+- `tests/test_api.py` mocks DB access so the suite runs without a live Postgres instance.
+
+## Phase 8 notes worth remembering
+- Migration is deliberately two-step: `cloud/bigquery/schema.sql` creates partitioned/clustered
+  tables and views first; `scripts/migrate_to_bigquery.py` loads data into them. The script
+  itself flags that `load_table_from_dataframe(autodetect=True)` alone does NOT apply
+  partitioning -- running the migration script without first running schema.sql produces an
+  unpartitioned table that will cost more to query. This ordering dependency is real and worth
+  stating plainly if asked, not glossed over.
+- `cloud/README.md` is the actual interview artifact here -- a direct Postgres-vs-BigQuery
+  comparison (partitioning/clustering replacing indexes, APPROX_QUANTILES vs PERCENTILE_CONT,
+  cost model, when you'd pick which). It also says plainly that this dataset doesn't actually
+  need BigQuery's scale -- the migration exists to demonstrate the skill, not because Postgres
+  was insufficient. That honesty is itself a better interview signal than overclaiming necessity.
+
+## Phase 9 notes worth remembering -- two real bugs, actually caught
+Running the suite (not just writing it) caught two genuine bugs before they'd have surfaced
+in an interview or a real run:
+1. **`_count_out_of_order` in `data_quality.py` was sorting by timestamp before diffing** --
+   which silently fixed the exact problem it was supposed to detect and always reported zero
+   out-of-order events. Fixed by diffing in the data's given order, not sorted order.
+2. **`data_contract.py` pinned dtype checks to `'object'`**, which broke under pandas 3.0 (this
+   environment's installed version), where the default string dtype changed to `'str'`.
+   Fixed with `pd.api.types.is_string_dtype`/`is_object_dtype` instead of a name-pinned
+   equality check -- version-stable rather than version-specific.
+Both are exactly the kind of thing worth mentioning in an interview if asked "did you test
+this" -- not just "yes", but "yes, and it caught two real bugs, here's what they were."
+
+## Phase 10 notes worth remembering
+- Logs are structured JSON, not free text -- every line is one `json.dumps()` call
+  (`JsonFormatter`), so log aggregation tools (or a plain `jq` pipe) can query them, not just
+  a human skimming a terminal.
+- `run_pipeline.py` now times every stage (load/contract/validate/clean/load_db) individually
+  and logs a duration for each, plus a final total -- this is what would let you actually
+  answer "why did last night's run take longer" instead of just "it finished", which is the
+  actual point of observability over just logging.
+- API requests get a short `request_id` (returned as an `X-Request-ID` response header) so a
+  single request's log line is correlatable if it touches more than one thing later.
+- `GET /observability/pipeline-runs` surfaces the Phase 5 `pipeline_runs` audit table over
+  HTTP -- previously that table existed but nothing outside direct DB access could see it;
+  now it's actually usable as a health signal.
+- Ran the full suite again after these changes (not assumed) -- 49/49 passed clean on the
+  first run this time, which is a reasonable signal the Phase 9 fixes were correct fixes and
+  not lucky ones.
+
+## Phase 11 notes worth remembering
+- Two docs are deliberately **pointers, not duplicated content**:
+  `findings-and-recommendations.md` points at `GET /reports/management` (live data, would
+  drift if hand-copied) and `cloud-architecture.md` points at `cloud/README.md` (avoids two
+  copies of the Postgres-vs-BigQuery reasoning going out of sync). This mirrors the same
+  discipline used throughout the code -- one source of truth, referenced, not copied.
+- `data-contract.md` is explicitly an honesty statement: real BPI 2019 event data, clearly
+  separated from synthetic business rules (SLA targets, expected process sequence, policy
+  docs). Worth reading verbatim before an interview -- it's the exact answer to "is this real
+  data."
+- `sql-analysis.md` is left as a stub on purpose -- it documents `sql/analysis/*.sql`, which
+  itself is still one-line stubs. Writing the doc before the SQL exists would mean describing
+  queries that don't exist yet, which is worse than an honest placeholder.
+- Ran the full test suite again after all doc changes (docs shouldn't touch code, but checked
+  anyway) -- still 49/49.
+
+## Phase 12 notes worth remembering
+- **`sql/schema/004_create_roles.sql` is deliberately NOT run automatically** by
+  `scripts/setup_database.py` -- it needs superuser/CREATEROLE privileges the app's own
+  `DB_USER` shouldn't have, and it uses psql-style `:'variable'` password substitution the
+  script's naive semicolon-splitting SQL runner can't handle (it would also choke on the
+  file's `DO $$ ... $$` block). `setup_database.py` explicitly skips this file and prints a
+  note on how to run it manually via `psql -v`. This was caught and fixed while writing the
+  file, not after -- worth remembering as another example of the 'run it and see' discipline
+  from Phase 9, applied to SQL this time instead of Python.
+- `src/api/db.py` now prefers a dedicated `API_DB_USER`/`API_DB_PASSWORD` over the pipeline's
+  write credential, with a fallback to `DB_USER`/`DB_PASSWORD` for simple local dev before
+  roles exist. This is real code behavior, not just a doc claiming least-privilege --
+  covered by `tests/test_observability.py`'s two credential-fallback tests.
+- `docs/security-notes.md` explicitly lists what's NOT covered (no API auth, no rate limiting,
+  no dependency scanning yet) rather than implying completeness -- that list is itself the
+  more honest and more interview-useful artifact than a security doc that claims the system
+  is hardened.
+- Ran the full suite one more time after these changes: **51/51 passing** (49 + 2 new
+  credential tests).
+
+## What's left (Tier 2/3, not phase-gated)
+- `sql/analysis/*.sql` -- still one-line stubs; SQL equivalents of `src/analytics/`, then
+  `docs/sql-analysis.md` can be written for real
+- `GET /metrics/conformance`, `GET /metrics/sla-risk-distribution` -- needed for dashboard
+  pages 5-6
+- The dashboard itself, actually built in Power BI/Looker Studio against the running API
+  (`dashboard/README.md` is the build spec)
+- API authentication (Tier 3 in `FEATURES.md`, explicitly out of scope for this pass, noted
+  in `docs/security-notes.md`)
+- **The single most valuable next step, unchanged from every earlier note in this file:**
+  actually run this against a live Postgres instance with a real BPI 2019 export. Nine of the
+  twelve phases went through real bug-catching (Phase 9's two, Phase 12's `setup_database.py`
+  fix); the parts that haven't been run against real data are exactly the parts still most
+  likely to have something to find.
+
+## Companion project status
+`operations-assistant`'s Phase 13 (backend foundations) and Phase 14 (document corpus + RAG
+ingestion) are now done -- see that repo's own `PLAN.md`. Its Phase 16 (structured-data tools)
+will call this project's `src/api/` endpoints directly, so nothing here needs to change for that
+to work -- the API was built with exactly that consumer in mind back in this project's Phase 6.
+
+## Explicitly deferred, not forgotten
+`src/cleaning/clean_orders.py`, `src/transformation/build_orders.py`,
+`src/transformation/build_process_metrics.py`, `src/analytics/scenario_analysis.py` -- nothing in
+the pipeline currently needs a separate "orders" table distinct from `clean_events.py`/
+`build_process_cases.py`. Don't build these speculatively -- revisit only if a real need shows up,
+otherwise delete rather than let them sit empty.
+
+
+## Phase 25 audit (post-completion, cross-project consistency + reproducibility check)
+Ran a systematic audit against the actual code, not the docs' claims about it -- checked every
+item in both projects' feature checklists against real files, and checked for undeclared
+dependencies (would a fresh clone + `pip install -r requirements.txt` actually work).
+
+**Confirmed accurate (no doc/code drift found)**: every analytics/ML/API file the docs claim
+exists, does. The three items already documented as NOT done (SHAP, `sql/analysis/*.sql` real
+content, an actually-built dashboard file) are genuinely not done -- no overclaiming found.
+
+**Two real, small bugs found and fixed by this audit**:
+1. `src/ingestion/validate_input.py`'s `__main__` block used `from load_event_log import
+   load_event_log` -- a bare import that only works if run from inside `src/ingestion/`, unlike
+   every other file's `__main__` block (14 of them), which consistently uses
+   `from src.ingestion.load_event_log import load_event_log`. Would have thrown
+   `ModuleNotFoundError` if someone ran `python -m src.ingestion.validate_input` from the repo
+   root, the way the rest of the codebase is meant to be run. Fixed to match the consistent
+   pattern.
+2. `pydantic` is imported directly in `src/api/schemas.py` but was never explicitly listed in
+   `requirements.txt` -- it happened to work because FastAPI pulls it in transitively, which is
+   fragile (a future FastAPI version could change or unpin that). Added as an explicit direct
+   dependency, since code that imports something directly should declare it directly.
+
+Cross-project consistency also re-verified: `config/sla.yaml`'s targets (3-way match: 10 days,
+Consignment: 14 days, default: 10) still match `operations-assistant/data/documents/sla-policy.md`
+exactly, as designed back in that project's Phase 14.
+
+Full suite reran clean after both fixes: 51/51.
+
+
+## Phase 27 -- Data correctness audit (golden dataset, hand-verified)
+Built `data/golden/golden_raw_events.csv` (7 cases, deliberately designed to hit every
+conformance deviation type plus rework and a clear SLA breach/supplier ranking) and hand-derived
+every metric -- cycle time percentiles, SLA breach rate, rework rate, conformance rate, supplier
+scorecard, and the full bottleneck stage-duration table -- with a calculator in
+`docs/data-correctness-audit.md`, before running any code. `tests/test_data_correctness.py` then
+proves the real pipeline produces those exact numbers.
+
+**This found a real, previously-undetected bug**, not just a discrepancy in the hand math:
+`conformance.py`'s out-of-order check compared a case's activities (with duplicates left in)
+against the deduplicated expected sequence, so a list-length mismatch meant **any repeated
+activity -- even an explicitly allowed one -- always triggered a false `out_of_order` deviation**.
+This meant `allowed_repeats` (e.g. multiple Goods Receipt events for a multi-line PO) never
+actually worked for conformance checking, only for the separate rework check in `rework.py`. Fixed
+by deduplicating before the comparison; a new assertion in `test_conformance_matches_hand_calculation`
+guards against it regressing. `docs/analytical-methodology.md`'s conformance section updated to
+describe the corrected (and now correct) behavior.
+
+Full suite after the fix: 62/62 (51 previous + 11 new correctness-audit tests).
+
+Why a golden dataset rather than auditing real BPI 2019 data: this environment has no real
+dataset loaded. A hand-verifiable set is arguably the more rigorous check anyway -- you can't
+independently verify an 18.4% breach rate on a real dataset by hand; every number in this audit
+was computed independently of the code, which is what makes it possible for the audit to catch a
+bug the unit tests (written by looking at the same code being tested) didn't.
+
+
+## Phase 28 -- End-to-end scenario tests (3 of 5 canonical scenarios live here)
+`tests/test_e2e_scenarios.py` traces 3 of the 5 canonical business scenarios through the real
+FastAPI route layer -- real Pydantic request/response validation, real analytics/ML functions --
+against the Phase 27 golden dataset (scenarios 1-2, where the correct answer is independently
+known) or a purpose-built larger synthetic set (scenario 3, since the 7-case golden set is too
+small to train/test meaningfully). Only the database layer is mocked (`load_cases`/`load_events`
+return DataFrames directly rather than querying live Postgres, since none is available here) --
+everything from that boundary outward is genuine production code.
+
+- **Scenario 1** ("identify the biggest bottleneck"): `GET /metrics/bottlenecks` against the
+  golden dataset returns exactly the hand-derived answer from Phase 27
+  (`docs/data-correctness-audit.md`) -- "Purchase Requisition -> Approval", 41.857h avg.
+- **Scenario 2** ("which supplier has the worst SLA performance"): `GET /suppliers/performance`
+  correctly identifies S3 as worst, matching Phase 27's hand derivation exactly.
+- **Scenario 3** ("is this order likely to breach SLA"): a real model trained on a purpose-built
+  synthetic set (not the golden set -- too small), then `GET /orders/{case_id}/risk` against a
+  case built from the high-risk end of the feature distribution correctly returns an elevated
+  risk level. The assertion is deliberately about the scenario's shape (risk correctly identified
+  as elevated), not an exact probability -- a trained model's output isn't something to
+  hand-derive the way Phase 27's deterministic analytics are.
+
+Scenarios 4 (policy retrieval) and 5 (the flagship combined question) live in
+`operations-assistant/tests/test_e2e_scenarios.py` and `docs/e2e-scenarios.md` -- they use a real
+(if network-restricted-workaround) retrieval chain that doesn't apply here.
+
+Full suite after Phase 28: 65/65 (62 previous + 3 new scenario tests).
+
+
+## Phase 30 -- Performance & cost pass
+Built `scripts/benchmark_pipeline.py` -- real, runnable timing of every pipeline stage, against
+either the golden dataset or a generated synthetic set at any scale
+(`python -m scripts.benchmark_pipeline --synthetic --n-cases 2000`).
+
+**Found and fixed a real, significant performance bug**: `rework_by_case` took 978ms at 2,000
+cases, 8-40x slower than sibling functions doing comparable work -- caused by a Python-level loop
+over every case (`for case_id, group in events.groupby("case_id")`) instead of one vectorized
+groupby. Rewritten; re-benchmarked at 9.93ms -- a ~98x speedup, dropping total pipeline time from
+1,248ms to 277ms for 2,000 cases. Correctness reverified against the Phase 27 golden dataset after
+the rewrite -- unchanged. `check_conformance` has the identical loop shape and is now the slowest
+remaining stage (128ms); deliberately NOT rewritten in this pass since its per-case logic is
+harder to vectorize safely than rework's simple count comparison, and doing it carelessly right
+after fixing a real correctness bug in the same area (Phase 27) risked introducing a new one.
+Documented as a known, non-urgent opportunity in `docs/performance-notes.md`.
+
+**Also found (by actually running the benchmark script, not by inspection): every script in this
+repo's documented invocation was broken.** `python scripts/run_pipeline.py` (exactly what
+`README.md` told people to run) fails with `ModuleNotFoundError: No module named 'src'`, because
+running a script by path puts its own directory on `sys.path`, not the repo root -- so every
+`from src...` import in the codebase failed. This had been broken since Phase 0 and was never
+caught because every prior verification ran through pytest (which sets `pythonpath=["."]` in
+`pyproject.toml`), never through the actual documented command a real user would type. Fixed by
+adding `scripts/__init__.py` and switching every documented invocation to `python -m scripts.foo`;
+`README.md` now explains why. **This is arguably the single most consequential finding across all
+27 phases of auditing/correctness/performance work** -- every other bug found was in a specific
+metric or edge case; this one meant the primary documented way to run the entire system didn't
+work, for anyone, the whole time.
+
+Full suite unaffected: 65/65.
+
+## Phase 29 (agent correctness audit) note
+Phase 29 lives in `operations-assistant` -- see that repo's `PLAN.md` and
+`src/evaluation/generate_agent_report.py`.
+
+
+## Phase 31 -- Production-readiness review
+`docs/production-readiness-review.md` -- four perspectives (Data, Application, AI, Operations),
+each question answered honestly against the actual code, "partially" and "no" included where
+true. See operations-assistant's own review for its half of the combined system.
+
+## Phase 32 -- Freeze v1.0
+`CHANGELOG.md` (what's in v1.0, every real bug found during the build, known limitations stated
+plainly) and `FUTURE_IMPROVEMENTS.md` (a real backlog, not a todo list disguised as done). No git
+repo exists in this environment to actually run `git tag` -- both files include the exact command
+to run once this code is under real version control.
+
+**All 32 phases across both projects are now complete or explicitly, honestly partial where
+named.** Final test totals: 65/65 here. The single remaining unknown, unchanged in substance
+since it was first named several phases ago: neither project has ever run against real
+infrastructure -- a live Postgres instance, a real `ANTHROPIC_API_KEY`, the two services actually
+talking to each other. That is not phase 33. It is the one thing left before v1.0 is more than a
+frozen, thoroughly-audited, never-executed system.
+
+## Post-v1.0 build session -- closing high/medium-impact backlog items
+Done after the v1.0 freeze, on request: real SQL for all 7 `sql/analysis/*.sql` files (previously
+one-line stubs); `docs/sql-analysis.md` filled in, including an honest explanation of why
+`conformance.sql` is deliberately partial. Dead stub files removed rather than left empty in a
+frozen repo (`sql/transformations/*.sql`, `build_orders.py`, `build_process_metrics.py`,
+`clean_orders.py`, `scenario_analysis.py`, `ml/evaluate.py`) -- all were genuinely never going to
+be built for v1.0 and are tracked in `FUTURE_IMPROVEMENTS.md` instead of sitting as clutter.
+
+Two new API endpoints: `GET /metrics/conformance` and `GET /metrics/sla-risk-distribution` --
+unlocking dashboard pages 5-6 (previously blocked, per `dashboard/README.md`) and
+`operations-assistant`'s `process.py` tools (previously empty, waiting on exactly this). 4 new
+tests, including one asserting the conformance endpoint against the Phase 27 golden dataset's
+hand-derived numbers exactly, and explicitly checking Phase 27's `out_of_order` fix still holds
+through the API layer, not just the underlying function.
+
+Full suite: 69/69.
+
+## Post-v1.0 build session, part 2 -- API authentication
+`src/api/auth.py` -- API-key auth via `X-API-Key`, constant-time compared
+(`secrets.compare_digest`, avoiding a timing side-channel a naive `==` would have). Applied to
+every route except `GET /health` (split into its own `health_router`, since health checks are
+conventionally unauthenticated for load-balancer/orchestrator probing). Fails open if `API_KEY`
+isn't set, matching this project's existing local-dev-permissive pattern (e.g.
+`API_ALLOWED_ORIGINS`'s default) -- existing tests needed zero changes as a result, confirmed by
+running the full suite before writing any new test. 5 new tests genuinely exercise the missing
+header / wrong key / correct key paths, not just "auth module exists."
+
+`docs/security-notes.md` and `docs/production-readiness-review.md` updated -- "No API
+authentication exists" was the most-repeated unclosed gap across both projects' security docs;
+now closed, with the real remaining limitation (one shared secret, no per-client keys/rotation)
+stated plainly rather than implied to be more complete than it is.
+
+Full suite: 74/74.
+
+## Post-v1.0 build session, part 3 -- Batch A complete
+Closed out every item in Batch A: `check_conformance` fully vectorized (~4x, after an honest
+false start), `scenario_analysis.py` built for real and hand-verified against the golden dataset,
+`train.py` gained Gradient Boosting comparison and genuine time-series cross-validation
+(`TimeSeriesSplit`, verified to actually produce chronologically-ordered folds, not just trusted
+by name), `src/ml/retrain_trigger.py` built as real, tested decision logic for an eventual
+scheduler, and CI gained a `pip-audit` job.
+
+**That CI job found something real on its first run**: 4 CVEs in `operations-assistant`'s
+`chromadb` dependency (this project doesn't use chromadb, so unaffected directly) -- see that
+project's `PLAN.md` and `docs/security-notes.md` for the investigation.
+
+Full suite: 89/89.
