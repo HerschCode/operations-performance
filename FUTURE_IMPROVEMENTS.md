@@ -16,7 +16,12 @@ scheduler to call. CI now runs a `pip-audit` dependency scan.
 
 ## Still open
 - SHAP-based explainability (replacing `src/ml/explain.py`'s lightweight approximation)
-- An actually-built Power BI / Looker Studio dashboard (currently a documented build spec only)
+- **Power BI / Looker Studio specifically** -- FEATURES.md's Tier 1 literally names one of
+  these two tools. What's actually built instead is a custom FastAPI+Chart.js dashboard at
+  `/dashboard` (live, real data, light/dark theme) covering the same content (and more --
+  Supplier/Conformance are Tier 2 items also included). This is a deliberate substitution,
+  not an oversight, but it means the literal Tier 1 item is still technically open if an
+  interviewer asks specifically "did you use a BI tool."
 - Per-client API keys, key rotation, and scopes/roles (single shared API key exists now -- see `src/api/auth.py`)
 - Hyperparameter tuning (grid/random search) and MLflow experiment tracking -- 3-model comparison
   with fixed hyperparameters and time-series CV now exists (`src/ml/train.py`), tuning doesn't yet
