@@ -342,6 +342,43 @@ stated plainly rather than implied to be more complete than it is.
 
 Full suite: 74/74.
 
+## Post-v1.0 build session -- the actual live run (Neon Postgres, real BPI 2019 data)
+Every phase note since Phase 9 pointed at the same unknown: this had never run against
+real infrastructure. It now has. `scripts/download_bpi2019_sample.py` streams the real
+729MB BPI Challenge 2019 XES file from 4TU.ResearchData and writes out the first 3,000
+real cases (32K+ real events after cleaning) as CSV, closing the connection early rather
+than downloading the full 251K-case file -- a genuine engineering trade-off for a
+free-tier Postgres instance (Neon, 0.5GB), not synthetic data standing in for real data.
+
+**Four real bugs found by this run, none caught by 89 passing mocked-DB tests:**
+1. `load_event_log.py` -- `purchase_order_id`/`item_id` came back `int64` from a real
+   CSV with bare-digit values; the data contract correctly rejected them as non-string
+   IDs. Fixed by explicit `.astype("string")` on those two columns rather than relaxing
+   the contract, since the contract's expectation was the correct one.
+2. `run_pipeline.py`'s `if_exists="replace"` on `process_cases` failed against a real
+   schema with `sla_predictions`'s FK actually in place (`DependentObjectsStillExist`)
+   -- exactly the trade-off this file's own earlier notes flagged as theoretical.
+   Fixed with an explicit `DROP ... CASCADE` before the replace, consistent with the
+   existing "replace per run" idempotency model.
+3. `src/api/db.py`'s engine had no `pool_pre_ping` -- Neon's serverless compute
+   auto-suspends after idling, and the next request against a stale pooled connection
+   raised `PendingRollbackError` instead of transparently reconnecting. Standard fix,
+   only found because a real gap existed between two live requests for it to trigger in.
+4. No `DB_SSLMODE` support anywhere a connection URL got built (`db.py`,
+   `setup_database.py`, `run_pipeline.py`) -- Neon rejects unencrypted connections.
+   Added as an env var (default `"prefer"`, so plain local Postgres dev is unaffected)
+   rather than hardcoding an assumption either way.
+
+Real, live results against this data: mean cycle time 2,393h, SLA-risk model trained
+(logistic regression selected, ROC-AUC 0.870), `GET /health`, `/metrics/cycle-time`, and
+`/metrics/bottlenecks` all confirmed working against the live Neon instance through a
+real running `uvicorn` process, not TestClient. Full suite re-verified clean with no
+local `.env` present (the state a real CI run would see): 89/89.
+
+See `operations-assistant/PLAN.md`'s matching entry for the cross-project bug this run
+also found (the assistant's tool client never sent `X-API-Key` to this project's now-real
+auth) and the first real live agent response through the full stack.
+
 ## Post-v1.0 build session, part 3 -- Batch A complete
 Closed out every item in Batch A: `check_conformance` fully vectorized (~4x, after an honest
 false start), `scenario_analysis.py` built for real and hand-verified against the golden dataset,

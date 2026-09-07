@@ -16,9 +16,11 @@ logger = get_logger("pipeline")
 
 
 def get_engine():
+    sslmode = os.environ.get("DB_SSLMODE", "prefer")
     url = (
         f"postgresql+psycopg2://{os.environ['DB_USER']}:{os.environ['DB_PASSWORD']}"
         f"@{os.environ['DB_HOST']}:{os.environ['DB_PORT']}/{os.environ['DB_NAME']}"
+        f"?sslmode={sslmode}"
     )
     return create_engine(url)
 
@@ -91,6 +93,16 @@ def run():
 
         with engine.begin() as conn:
             cleaned.to_sql("events", conn, schema="staging", if_exists="replace", index=False)
+            # pandas' if_exists="replace" does DROP TABLE then CREATE -- which fails on a
+            # real database once sql/schema/001_create_tables.sql's FK from
+            # analytics.sla_predictions to process_cases actually exists (only surfaced
+            # once this ran against a real Postgres with the full schema applied, not
+            # against the mocked DB layer every test uses). CASCADE explicitly here so a
+            # full pipeline reload also clears out now-stale derived predictions, which
+            # src/ml/predict.py is expected to regenerate against the new case set anyway
+            # -- consistent with the existing "replace per run" idempotency model, just
+            # extended to the table that depends on the one being replaced.
+            conn.execute(text("DROP TABLE IF EXISTS analytics.process_cases CASCADE"))
             cases.to_sql("process_cases", conn, schema="analytics", if_exists="replace", index=False)
         step("Load to Postgres complete", stage="load_db", duration_seconds=round(time.monotonic() - t0, 2))
 

@@ -5,9 +5,11 @@ from sqlalchemy import create_engine, text
 
 
 def get_engine():
+    sslmode = os.environ.get("DB_SSLMODE", "prefer")
     url = (
         f"postgresql+psycopg2://{os.environ['DB_USER']}:{os.environ['DB_PASSWORD']}"
         f"@{os.environ['DB_HOST']}:{os.environ['DB_PORT']}/{os.environ['DB_NAME']}"
+        f"?sslmode={sslmode}"
     )
     return create_engine(url)
 

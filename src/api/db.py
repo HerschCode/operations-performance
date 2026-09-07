@@ -16,11 +16,24 @@ def get_engine() -> Engine:
         # simple local dev where roles haven't been set up yet.
         user = os.environ.get("API_DB_USER", os.environ["DB_USER"])
         password = os.environ.get("API_DB_PASSWORD", os.environ["DB_PASSWORD"])
+        # sslmode defaults to "prefer" (psycopg2's own default, safe for a plain local
+        # Postgres with no SSL configured) but a hosted instance like Neon requires SSL
+        # -- set DB_SSLMODE=require for those rather than hardcoding one assumption.
+        sslmode = os.environ.get("DB_SSLMODE", "prefer")
         url = (
             f"postgresql+psycopg2://{user}:{password}"
             f"@{os.environ['DB_HOST']}:{os.environ['DB_PORT']}/{os.environ['DB_NAME']}"
+            f"?sslmode={sslmode}"
         )
-        _engine = create_engine(url, pool_size=5, pool_timeout=30)
+        # pool_pre_ping: a hosted serverless Postgres (Neon, this deployment's target)
+        # auto-suspends its compute after a period of no traffic -- a connection sitting
+        # idle in SQLAlchemy's pool across that suspend/resume becomes stale, and reusing
+        # it raises PendingRollbackError rather than transparently reconnecting. Found by
+        # an actual live call landing after enough idle time for Neon to have suspended,
+        # not by any test (every test here mocks the DB layer entirely). pre_ping issues
+        # a cheap liveness check before handing out a pooled connection and silently
+        # replaces it if the check fails, which is the standard fix for exactly this.
+        _engine = create_engine(url, pool_size=5, pool_timeout=30, pool_pre_ping=True)
     return _engine
 
 

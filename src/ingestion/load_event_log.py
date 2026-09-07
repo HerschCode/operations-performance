@@ -34,7 +34,19 @@ def load_event_log(path: str | Path) -> pd.DataFrame:
     df = df.rename(columns=present_map)
 
     keep = [v for v in present_map.values() if v in df.columns]
-    return df[keep].copy()
+    df = df[keep].copy()
+
+    # purchase_order_id/item_id are identifiers, not quantities -- but a real source CSV
+    # with bare-digit values (e.g. this project's BPI 2019 sample, whose Purchasing
+    # Document/Item fields are numeric-looking) gets them inferred as int64 by
+    # pd.read_csv, which the data contract (correctly) rejects as "not string-like".
+    # Cast explicitly rather than relaxing the contract, since the contract's
+    # expectation is the correct one -- an ID should never silently become a number.
+    for id_col in ("purchase_order_id", "item_id"):
+        if id_col in df.columns:
+            df[id_col] = df[id_col].astype("string")
+
+    return df
 
 
 if __name__ == "__main__":

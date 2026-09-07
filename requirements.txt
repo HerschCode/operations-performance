@@ -11,5 +11,6 @@ fastapi>=0.110
 uvicorn[standard]>=0.29
 pydantic>=2.6
 httpx>=0.27
+requests>=2.31
 google-cloud-bigquery>=3.20
 db-dtypes>=1.2
