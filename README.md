@@ -1,5 +1,7 @@
 # Operations Performance
 
+![Tests](https://github.com/HerschCode/operations-performance/actions/workflows/test.yml/badge.svg)
+
 **🔗 [Live API](https://operations-performance.onrender.com/docs)** — interactive Swagger docs for
 the deployed analytics API, running against a real Postgres instance (Neon) loaded with real BPI
 2019 procurement data. See [`operations-assistant`](https://operations-assistant.onrender.com) for
@@ -24,28 +26,7 @@ Full breakdown in [`docs/data-contract.md`](docs/data-contract.md).
 Python · Pandas · SQL · PostgreSQL · scikit-learn · Power BI / Looker Studio · BigQuery · GCP
 
 ## Architecture
-```
-BPI 2019 event log + synthetic context
-              │
-        Python ETL (ingest → contract check → validate → clean → transform)
-              │
-          PostgreSQL  ── analytics.pipeline_runs (audit trail per run)
-              │
-   ┌──────────┼───────────┐
-   ▼          ▼            ▼
-  SQL   Process analytics  ML (SLA-risk model)
-   │          │            │
-   └──────────┼────────────┘
-              ▼
-     FastAPI analytics API (src/api/) ── consumed by operations-assistant's tools
-              │
-              ▼
-     Dashboard + management report
-              │
-              ▼
-    BigQuery (partitioned/clustered) + Looker Studio
-    -- see cloud/README.md for the Postgres-vs-BigQuery comparison
-```
+![Architecture diagram](docs/architecture.svg)
 
 ## Status
 See [`FEATURES.md`](FEATURES.md) for the full, tiered feature specification and definition of done.

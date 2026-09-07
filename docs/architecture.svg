@@ -1,0 +1,80 @@
+<svg viewBox="0 0 920 560" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,Segoe UI,Roboto,sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5b7a9d"/>
+    </marker>
+    <marker id="arrow-dashed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9aa7b5"/>
+    </marker>
+  </defs>
+  <rect width="920" height="560" fill="#ffffff"/>
+
+  <!-- Source data -->
+  <rect x="40" y="24" width="300" height="46" rx="8" fill="#eef3fb" stroke="#c7d7ee"/>
+  <text x="190" y="43" text-anchor="middle" font-size="13" font-weight="600" fill="#1b3a5c">BPI Challenge 2019 event log</text>
+  <text x="190" y="59" text-anchor="middle" font-size="11" fill="#5b7a9d">real data + synthetic business context</text>
+
+  <line x1="190" y1="70" x2="190" y2="100" stroke="#5b7a9d" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- ETL -->
+  <rect x="40" y="102" width="300" height="52" rx="8" fill="#f2f7ee" stroke="#cfe4c0"/>
+  <text x="190" y="123" text-anchor="middle" font-size="13" font-weight="600" fill="#2c5222">Python ETL pipeline</text>
+  <text x="190" y="139" text-anchor="middle" font-size="11" fill="#4d7a3a">ingest → contract check → validate → clean → transform</text>
+
+  <line x1="190" y1="154" x2="190" y2="184" stroke="#5b7a9d" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Postgres -->
+  <rect x="40" y="186" width="300" height="52" rx="8" fill="#fbeee9" stroke="#f0c9b8"/>
+  <text x="190" y="207" text-anchor="middle" font-size="13" font-weight="600" fill="#8a3a1c">PostgreSQL (Neon)</text>
+  <text x="190" y="223" text-anchor="middle" font-size="11" fill="#b25f3d">events · process_cases · pipeline_runs audit log</text>
+
+  <!-- fan out to 3 analytics boxes -->
+  <line x1="190" y1="238" x2="190" y2="258" stroke="#5b7a9d" stroke-width="1.5"/>
+  <line x1="90" y1="258" x2="500" y2="258" stroke="#5b7a9d" stroke-width="1.5"/>
+  <line x1="90" y1="258" x2="90" y2="278" stroke="#5b7a9d" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="290" y1="258" x2="290" y2="278" stroke="#5b7a9d" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="500" y1="258" x2="500" y2="278" stroke="#5b7a9d" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="20" y="280" width="140" height="46" rx="8" fill="#fdf4e3" stroke="#f0dba9"/>
+  <text x="90" y="308" text-anchor="middle" font-size="12" font-weight="600" fill="#8a6410">SQL analytics</text>
+
+  <rect x="220" y="280" width="140" height="46" rx="8" fill="#fdf4e3" stroke="#f0dba9"/>
+  <text x="290" y="300" text-anchor="middle" font-size="12" font-weight="600" fill="#8a6410">Process analytics</text>
+  <text x="290" y="315" text-anchor="middle" font-size="10" fill="#a8842f">bottlenecks · SLA · rework</text>
+
+  <rect x="430" y="280" width="140" height="46" rx="8" fill="#fdf4e3" stroke="#f0dba9"/>
+  <text x="500" y="300" text-anchor="middle" font-size="12" font-weight="600" fill="#8a6410">ML: SLA-risk model</text>
+  <text x="500" y="315" text-anchor="middle" font-size="10" fill="#a8842f">logistic reg. / RF / GB</text>
+
+  <!-- converge -->
+  <line x1="90" y1="326" x2="290" y2="360" stroke="#5b7a9d" stroke-width="1.5"/>
+  <line x1="290" y1="326" x2="290" y2="360" stroke="#5b7a9d" stroke-width="1.5"/>
+  <line x1="500" y1="326" x2="290" y2="360" stroke="#5b7a9d" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- FastAPI -->
+  <rect x="110" y="362" width="360" height="52" rx="8" fill="#eef3fb" stroke="#c7d7ee"/>
+  <text x="290" y="383" text-anchor="middle" font-size="13" font-weight="600" fill="#1b3a5c">FastAPI analytics API</text>
+  <text x="290" y="399" text-anchor="middle" font-size="11" fill="#5b7a9d">/metrics/* · /suppliers/* · /orders/{id}/risk · /dashboard</text>
+
+  <!-- to dashboard -->
+  <line x1="290" y1="414" x2="290" y2="444" stroke="#5b7a9d" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <rect x="150" y="446" width="280" height="46" rx="8" fill="#f2f7ee" stroke="#cfe4c0"/>
+  <text x="290" y="474" text-anchor="middle" font-size="13" font-weight="600" fill="#2c5222">Live dashboard (/dashboard)</text>
+
+  <!-- to operations-assistant, off to the right -->
+  <line x1="470" y1="388" x2="640" y2="388" stroke="#5b7a9d" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <rect x="642" y="362" width="238" height="52" rx="8" fill="#f5eefb" stroke="#ddc7ee"/>
+  <text x="761" y="383" text-anchor="middle" font-size="13" font-weight="600" fill="#5c1b7a">operations-assistant</text>
+  <text x="761" y="399" text-anchor="middle" font-size="11" fill="#8a5b9d">consumes these endpoints as agent tools</text>
+
+  <!-- BigQuery, dashed = code-complete, not run against live infra -->
+  <line x1="600" y1="212" x2="640" y2="212" stroke="#9aa7b5" stroke-width="1.5" stroke-dasharray="5,4"/>
+  <line x1="340" y1="212" x2="600" y2="212" stroke="#9aa7b5" stroke-width="1.5" stroke-dasharray="5,4"/>
+  <line x1="600" y1="212" x2="600" y2="212" stroke="#9aa7b5" stroke-width="1.5"/>
+  <path d="M 340 212 L 640 212" fill="none" stroke="#9aa7b5" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-dashed)"/>
+  <rect x="642" y="188" width="238" height="52" rx="8" fill="#f4f5f6" stroke="#d7dade" stroke-dasharray="4,3"/>
+  <text x="761" y="209" text-anchor="middle" font-size="12" font-weight="600" fill="#6b7480">BigQuery migration</text>
+  <text x="761" y="224" text-anchor="middle" font-size="10" fill="#8a92a0">code-complete, not yet run live</text>
+
+  <text x="20" y="545" font-size="11" fill="#9aa7b5">Solid = built &amp; verified against live infra · Dashed = code-complete, not yet run against live infra</text>
+</svg>

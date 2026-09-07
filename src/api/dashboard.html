@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Operations Performance — Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --border: #e3e6ea; --text: #14181f; --muted: #6b7280;
+    --accent: #3b6fe0; --accent-soft: #e8effd;
+    --good: #1f9d55; --warn: #c9860a; --bad: #d64545;
+    --grid: #eceff2;
+  }
+  [data-theme="dark"] {
+    --bg: #0d1117; --panel: #151b23; --border: #262d38; --text: #e6edf3; --muted: #8b98a5;
+    --accent: #5b8cff; --accent-soft: #1a2740;
+    --good: #3fb96f; --warn: #d29922; --bad: #f0685f;
+    --grid: #202832;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1117; --panel: #151b23; --border: #262d38; --text: #e6edf3; --muted: #8b98a5;
+      --accent: #5b8cff; --accent-soft: #1a2740;
+      --good: #3fb96f; --warn: #d29922; --bad: #f0685f;
+      --grid: #202832;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text); min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 24px; transition: background 0.15s, color 0.15s;
+  }
+  .container { max-width: 1180px; margin: 0 auto; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 16px; flex-wrap: wrap; }
+  h1 { font-size: 1.35rem; margin: 0 0 4px; }
+  .subtitle { color: var(--muted); font-size: 0.85rem; max-width: 640px; line-height: 1.5; }
+  .subtitle a { color: var(--accent); }
+  #theme-toggle {
+    background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    border-radius: 999px; padding: 7px 14px; font-size: 0.82rem; cursor: pointer;
+    display: flex; align-items: center; gap: 6px; white-space: nowrap;
+  }
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .kpi {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
+  }
+  .kpi-label { font-size: 0.75rem; color: var(--muted); margin-bottom: 6px; }
+  .kpi-value { font-size: 1.5rem; font-weight: 700; }
+  .kpi-value.warn { color: var(--warn); }
+  .kpi-value.bad { color: var(--bad); }
+  .grid-2 { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; margin-bottom: 16px; }
+  @media (max-width: 860px) { .grid-2 { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px; margin-bottom: 16px;
+  }
+  .card h2 { font-size: 0.95rem; margin: 0 0 14px; display: flex; align-items: center; justify-content: space-between; }
+  .card h2 .badge { font-size: 0.7rem; font-weight: 400; color: var(--muted); }
+  .empty-state { color: var(--muted); font-size: 0.85rem; padding: 20px 0; text-align: center; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  tr:last-child td { border-bottom: none; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 600; }
+  .pill.low { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); }
+  .pill.medium { background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); }
+  .pill.high { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
+  canvas { max-height: 260px; }
+  footer { color: var(--muted); font-size: 0.78rem; text-align: center; margin-top: 24px; line-height: 1.6; }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div>
+      <h1>Operations Performance</h1>
+      <div class="subtitle">
+        Live process analytics over real BPI Challenge 2019 procurement data, served straight
+        from the same functions <a href="/docs" target="_blank">the REST API</a> uses — no
+        separate dashboard logic to drift out of sync.
+      </div>
+    </div>
+    <button id="theme-toggle" onclick="toggleTheme()">🌓 <span id="theme-label">Theme</span></button>
+  </header>
+
+  <div class="kpi-grid" id="kpi-grid">
+    <div class="empty-state" style="grid-column: 1 / -1;">Loading — first load can take up to a minute against this project's free-tier database, cached after that.</div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h2>Bottlenecks <span class="badge">avg hours by stage</span></h2>
+      <div id="bottlenecks-body"><canvas id="bottlenecks-chart"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>SLA Risk Distribution <span class="badge">predicted, all cases</span></h2>
+      <div id="risk-body"><canvas id="risk-chart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h2>Supplier Performance <span class="badge">min. 3 orders</span></h2>
+      <div id="suppliers-body"></div>
+    </div>
+    <div class="card">
+      <h2>Process Conformance</h2>
+      <div id="conformance-body"></div>
+    </div>
+  </div>
+
+  <footer>
+    Source: <a href="https://github.com/HerschCode/operations-performance" target="_blank">operations-performance</a>
+    · Companion: <a href="https://operations-assistant.onrender.com" target="_blank">operations-assistant</a> (ask questions about this same data)
+  </footer>
+</div>
+
+<script>
+const root = document.documentElement;
+const themeLabel = document.getElementById('theme-label');
+
+function applyTheme(theme) {
+  if (theme) { root.setAttribute('data-theme', theme); } else { root.removeAttribute('data-theme'); }
+  themeLabel.textContent = theme === 'dark' ? 'Dark' : theme === 'light' ? 'Light' : 'Auto';
+}
+function toggleTheme() {
+  const current = localStorage.getItem('theme') || 'auto';
+  const next = current === 'auto' ? 'light' : current === 'light' ? 'dark' : 'auto';
+  localStorage.setItem('theme', next);
+  applyTheme(next === 'auto' ? null : next);
+}
+applyTheme(localStorage.getItem('theme') === 'light' ? 'light' : localStorage.getItem('theme') === 'dark' ? 'dark' : null);
+
+function cssVar(name) { return getComputedStyle(root).getPropertyValue(name).trim(); }
+function emptyState(msg) { return `<div class="empty-state">${msg}</div>`; }
+
+function riskClass(level) { return level === 'HIGH' ? 'high' : level === 'MEDIUM' ? 'medium' : 'low'; }
+
+let bottleneckChart, riskChart;
+
+function renderKpis(overview) {
+  const grid = document.getElementById('kpi-grid');
+  if (!overview.available) {
+    grid.innerHTML = emptyState('No process data loaded yet — run the pipeline first.');
+    return;
+  }
+  grid.innerHTML = `
+    <div class="kpi"><div class="kpi-label">Total Cases</div><div class="kpi-value">${overview.case_count.toLocaleString()}</div></div>
+    <div class="kpi"><div class="kpi-label">Mean Cycle Time</div><div class="kpi-value">${overview.mean_cycle_hours.toLocaleString()}h</div></div>
+    <div class="kpi"><div class="kpi-label">Median Cycle Time</div><div class="kpi-value">${overview.median_cycle_hours.toLocaleString()}h</div></div>
+    <div class="kpi"><div class="kpi-label">P90 Cycle Time</div><div class="kpi-value">${overview.p90_cycle_hours.toLocaleString()}h</div></div>
+    <div class="kpi"><div class="kpi-label">SLA Breach Rate</div><div class="kpi-value ${overview.breach_rate_pct > 20 ? 'bad' : overview.breach_rate_pct > 10 ? 'warn' : ''}">${overview.breach_rate_pct}%</div></div>
+  `;
+}
+
+function renderBottlenecks(data) {
+  const body = document.getElementById('bottlenecks-body');
+  if (!data.available || !data.stages.length) {
+    body.innerHTML = emptyState('No bottleneck data available yet.');
+    return;
+  }
+  body.innerHTML = '<canvas id="bottlenecks-chart"></canvas>';
+  const ctx = document.getElementById('bottlenecks-chart');
+  if (bottleneckChart) bottleneckChart.destroy();
+  bottleneckChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.stages.map(s => s.stage),
+      datasets: [{ label: 'Avg hours', data: data.stages.map(s => s.avg_hours), backgroundColor: cssVar('--accent') }],
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: cssVar('--grid') }, ticks: { color: cssVar('--muted') } },
+        y: { grid: { display: false }, ticks: { color: cssVar('--muted'), font: { size: 11 } } },
+      },
+    },
+  });
+}
+
+function renderRisk(data) {
+  const body = document.getElementById('risk-body');
+  if (!data.available) {
+    body.innerHTML = emptyState('No trained SLA-risk model available yet.');
+    return;
+  }
+  body.innerHTML = '<canvas id="risk-chart"></canvas>';
+  const ctx = document.getElementById('risk-chart');
+  if (riskChart) riskChart.destroy();
+  riskChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Low', 'Medium', 'High'],
+      datasets: [{ data: [data.low, data.medium, data.high], backgroundColor: [cssVar('--good'), cssVar('--warn'), cssVar('--bad')] }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { color: cssVar('--muted') } } },
+    },
+  });
+}
+
+function renderSuppliers(data) {
+  const body = document.getElementById('suppliers-body');
+  if (!data.available || !data.suppliers.length) {
+    body.innerHTML = emptyState('No supplier data available yet.');
+    return;
+  }
+  body.innerHTML = `
+    <table>
+      <thead><tr><th>Supplier</th><th>Orders</th><th>Avg Cycle</th><th>Breach Rate</th></tr></thead>
+      <tbody>
+        ${data.suppliers.map(s => `
+          <tr>
+            <td>${s.supplier_id}</td>
+            <td>${s.order_count}</td>
+            <td>${s.avg_cycle_time_hours.toFixed(1)}h</td>
+            <td>${s.sla_breach_rate != null ? (s.sla_breach_rate * 100).toFixed(0) + '%' : '—'}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderConformance(data) {
+  const body = document.getElementById('conformance-body');
+  if (!data.available) {
+    body.innerHTML = emptyState('Conformance checking not configured (config/process.yaml missing) or no events loaded.');
+    return;
+  }
+  const deviations = Object.entries(data.deviation_breakdown || {});
+  body.innerHTML = `
+    <div class="kpi" style="margin-bottom: 12px;">
+      <div class="kpi-label">Conformance Rate</div>
+      <div class="kpi-value">${data.conformance_rate_pct}%</div>
+      <div style="color: var(--muted); font-size: 0.78rem; margin-top: 4px;">${data.conformant_cases} / ${data.total_cases} cases</div>
+    </div>
+    ${deviations.length ? `
+    <table>
+      <thead><tr><th>Deviation type</th><th>Count</th></tr></thead>
+      <tbody>${deviations.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</tbody>
+    </table>` : ''}
+  `;
+}
+
+async function loadDashboard() {
+  try {
+    const res = await fetch('/dashboard/data');
+    const data = await res.json();
+    renderKpis(data.executive_overview);
+    renderBottlenecks(data.bottlenecks);
+    renderRisk(data.sla_risk);
+    renderSuppliers(data.suppliers);
+    renderConformance(data.conformance);
+  } catch (err) {
+    document.getElementById('kpi-grid').innerHTML = emptyState('Could not reach the API — it may be waking up from a free-tier sleep. Try refreshing shortly.');
+  }
+}
+loadDashboard();
+</script>
+</body>
+</html>
