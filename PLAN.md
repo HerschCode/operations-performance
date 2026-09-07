@@ -392,3 +392,27 @@ scheduler, and CI gained a `pip-audit` job.
 project's `PLAN.md` and `docs/security-notes.md` for the investigation.
 
 Full suite: 89/89.
+
+## Post-v1.0 build session -- real dashboard, Dockerfile, architecture diagram
+Closed the last major documented gap: `dashboard/README.md` was a Power BI/Looker
+build spec, never an actual built dashboard. `src/api/dashboard.py` + `dashboard.html`
+now serve a real, live dashboard at `/dashboard` -- light/dark theme, Chart.js visuals,
+built against the exact same `src/analytics`/`src/ml` functions the REST API already
+uses, deliberately unauthenticated (same reasoning as `operations-assistant`'s
+`/demo/chat`).
+
+**Found a real performance bug while building it, on the actual live Neon deployment**:
+five dashboard sections each independently re-querying `load_cases()`/`load_events()`
+meant a full page load took 60+ seconds -- confirmed a plain `SELECT * FROM
+staging.events` on the real 32K-row table alone exceeded a minute against Neon's
+free-tier pooled endpoint. Fixed by loading each table exactly once and sharing it
+across every section that needs it (5 DB round trips -> 2), plus a 120s server-side
+cache, since this data only changes when the pipeline reruns. 9 new tests.
+
+Also added: `Dockerfile` (this project's only missing one -- mirrors
+`operations-assistant`'s pattern, not run against a live Docker daemon in this
+environment, stated plainly), `docs/architecture.svg` replacing the README's ASCII
+diagram (BigQuery path explicitly dashed/labeled as code-complete-but-unrun), and a CI
+badge.
+
+Full suite: 98/98.
