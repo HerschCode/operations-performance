@@ -1,5 +1,11 @@
 # Operations Performance
 
+**🔗 [Live API](https://operations-performance.onrender.com/docs)** — interactive Swagger docs for
+the deployed analytics API, running against a real Postgres instance (Neon) loaded with real BPI
+2019 procurement data. See [`operations-assistant`](https://operations-assistant.onrender.com) for
+a conversational interface over this same data. Free-tier hosting, first request may be slow to
+wake up.
+
 An operations analytics and process-intelligence platform for a Procure-to-Pay (P2P) process —
 built for a fictional client, **Northstar Manufacturing** — that identifies bottlenecks, SLA
 failures, process deviations, and supplier performance issues, and turns them into evidence-backed
