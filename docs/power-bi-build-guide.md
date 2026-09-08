@@ -41,7 +41,7 @@ SELECT
     ROUND(AVG(cycle_time_hours)::numeric, 2)                        AS mean_hours,
     ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cycle_time_hours)::numeric, 2)  AS median_hours,
     ROUND(PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY cycle_time_hours)::numeric, 2)  AS p90_hours
-FROM analytics.process_cases;
+FROM analytics.process_cases
 ```
 Drag each column onto a separate **Card** visual.
 
@@ -61,7 +61,7 @@ FROM stage_durations
 WHERE stage IS NOT NULL
 GROUP BY stage
 ORDER BY avg_hours DESC
-LIMIT 8;
+LIMIT 8
 ```
 **Clustered bar chart**: Axis = `stage`, Values = `avg_hours`.
 
@@ -78,7 +78,7 @@ SELECT category, COUNT(*) AS case_count,
 FROM sla_targets
 WHERE category IS NOT NULL
 GROUP BY category
-ORDER BY breach_rate_pct DESC;
+ORDER BY breach_rate_pct DESC
 ```
 **Bar chart**: Axis = `category`, Values = `breach_rate_pct`.
 
@@ -96,7 +96,7 @@ FROM sla_eval
 GROUP BY supplier_id
 HAVING COUNT(*) >= 5
 ORDER BY avg_cycle_time_hours
-LIMIT 10;
+LIMIT 10
 ```
 **Table visual**, all 4 columns.
 
@@ -107,7 +107,7 @@ FROM staging.events
 GROUP BY case_id, activity
 HAVING COUNT(*) > 1
 ORDER BY occurrence_count DESC
-LIMIT 50;
+LIMIT 50
 ```
 **Table visual**. Note: this is a partial signal (repeated activities), not the full
 Python conformance check — see `sql/analysis/conformance.sql`'s own comment for why
