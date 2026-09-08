@@ -28,8 +28,12 @@ and live Neon data. See PLAN.md.
   Supplier/Conformance are Tier 2 items also included). This is a deliberate substitution,
   not an oversight, but it means the literal Tier 1 item is still technically open if an
   interviewer asks specifically "did you use a BI tool."
-- Hyperparameter tuning (grid/random search) and MLflow experiment tracking -- 3-model comparison
-  with fixed hyperparameters and time-series CV now exists (`src/ml/train.py`), tuning doesn't yet
+
+## Post-v1.0: hyperparameter tuning + MLflow tracking
+`src/ml/tune.py` -- RandomizedSearchCV with TimeSeriesSplit, additive alongside
+train.py's fixed-hyperparameter comparison. MLflow tracking via local SQLite
+(`sqlite:///mlflow.db`) after a real finding: MLflow 3.x deprecated the plain
+file-store backend. Verified against real live Neon data. See PLAN.md.
 
 ## Post-v1.0: retrain trigger wired to a real scheduler
 `.github/workflows/retrain-check.yml` (daily cron) + `scripts/check_and_retrain.py`.
