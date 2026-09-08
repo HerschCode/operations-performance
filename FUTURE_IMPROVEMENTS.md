@@ -14,8 +14,14 @@ comparison now includes Gradient Boosting plus proper time-series cross-validati
 (`src/ml/retrain_trigger.py`) -- time- and volume-based, real decision logic ready for a real
 scheduler to call. CI now runs a `pip-audit` dependency scan.
 
+## Post-v1.0: real SHAP explainability
+`src/ml/explain_shap.py` -- real `shap.Explainer`-based per-prediction and batch
+explanations, additive alongside the original lightweight approximation (nothing
+depended on that module changing). Verified with 4 new tests (real shap against a
+real trained model, no mocking) and manually against the actual production model
+and live Neon data. See PLAN.md.
+
 ## Still open
-- SHAP-based explainability (replacing `src/ml/explain.py`'s lightweight approximation)
 - **Power BI / Looker Studio specifically** -- FEATURES.md's Tier 1 literally names one of
   these two tools. What's actually built instead is a custom FastAPI+Chart.js dashboard at
   `/dashboard` (live, real data, light/dark theme) covering the same content (and more --
