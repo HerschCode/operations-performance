@@ -28,7 +28,6 @@ and live Neon data. See PLAN.md.
   Supplier/Conformance are Tier 2 items also included). This is a deliberate substitution,
   not an oversight, but it means the literal Tier 1 item is still technically open if an
   interviewer asks specifically "did you use a BI tool."
-- Per-client API keys, key rotation, and scopes/roles (single shared API key exists now -- see `src/api/auth.py`)
 - Hyperparameter tuning (grid/random search) and MLflow experiment tracking -- 3-model comparison
   with fixed hyperparameters and time-series CV now exists (`src/ml/train.py`), tuning doesn't yet
 - Wire `src/ml/retrain_trigger.py`'s decision logic to an actual scheduler (cron, Cloud Scheduler,

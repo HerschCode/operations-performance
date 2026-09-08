@@ -40,10 +40,16 @@ hardened for real deployment.
   `secrets.compare_digest` (constant-time, avoiding a timing side-channel a naive `==` comparison
   would have). `/health` is deliberately exempt -- health checks are conventionally
   unauthenticated so a load balancer/orchestrator can probe liveness without a credential, a
-  standard practice, not an oversight. If `API_KEY` isn't set, auth fails **open** for local
-  development, matching this project's other permissive local-dev defaults -- a real deployment
-  must set it. What's still not built: per-client keys, rotation, scopes/roles -- one shared
-  secret is the whole mechanism, named plainly as the limitation it is.
+  standard practice, not an oversight. If neither `API_KEY` nor `API_KEYS` is set, auth fails
+  **open** for local development, matching this project's other permissive local-dev defaults --
+  a real deployment must set one.
+- **Per-client keys with named roles now exist** (`API_KEYS`, comma-separated `name:key:role`
+  triples) -- revoking one caller's access no longer requires rotating everyone else's key, which
+  the original single-shared-secret design did. `API_KEY` still works too (mapped to a synthetic
+  "default" admin client), so an already-configured deployment doesn't break. `require_role()`
+  exists for gating a specific route to a specific role; every route in this project is currently
+  read-only so no route actually uses it yet -- it's real, tested infrastructure ready for the
+  first route that needs it, not speculative scaffolding.
 
 ## SQL injection
 - All queries go through SQLAlchemy's parameterized queries (`text(...)` with bound params, e.g.
@@ -55,7 +61,7 @@ hardened for real deployment.
 
 ## What's explicitly NOT done here, on purpose
 - No rate limiting on the API (Tier 3)
-- Only one shared API key, no per-client keys/rotation/scopes (see above)
+- No automated key rotation (revoking/issuing a key is still a manual env var edit + redeploy)
 - No encryption-at-rest configuration for Postgres (assumed handled by the hosting environment,
   not this codebase's concern)
 - No dependency vulnerability scanning in CI yet -- a reasonable `pip-audit` addition to

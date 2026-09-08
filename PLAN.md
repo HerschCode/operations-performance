@@ -436,3 +436,22 @@ real SHAP values returned (e.g. `variant_frequency: -2.3155` on the log-odds sca
 correct for a linear model's LinearExplainer).
 
 Full suite: 102/102.
+
+## Post-v1.0 build session -- per-client API keys with named roles
+`src/api/auth.py` now supports `API_KEYS` (comma-separated `name:key:role` triples)
+alongside the original single-secret `API_KEY`, closing the gap the module's own
+docstring named explicitly since Phase 12. Fully backward compatible -- `API_KEY`
+still works (mapped to a synthetic "default" admin client), so this project's live
+Render deployment's already-configured key didn't need to change.
+
+The actual value: revoking one caller's access (a leaked key, an offboarded
+integration) means removing its one entry from `API_KEYS`, not rotating a single
+shared secret every caller depends on. `require_role()` exists for gating a route
+to a specific role -- unused today since every route here is read-only, but real,
+tested infrastructure rather than speculative scaffolding.
+
+4 new tests (multiple clients each work independently, revoking one doesn't affect
+another, a malformed entry is skipped not fatal, legacy API_KEY keeps working
+alongside API_KEYS) plus the 5 original tests, all passing unchanged.
+
+Full suite: 106/106.
