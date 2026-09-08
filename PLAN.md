@@ -507,3 +507,43 @@ sklearn's search is mocked), MLflow logging mocked separately, and a direct chec
 that `TimeSeriesSplit` (not k-fold) is what's actually constructed.
 
 Full suite: 113/113.
+
+## Post-v1.0 build session -- Dockerfile actually built and run for the first time
+Closes the last genuinely untested artifact: `Dockerfile` was written but, per every
+earlier note in this file, never actually run through `docker build`/`docker run` --
+no Docker daemon existed in the environment these phases were built in.
+
+**Real Docker Desktop + WSL2 host networking issue found and fixed** (not a code
+bug, but a real environment problem worth documenting): large HTTPS downloads
+during `pip install` (mlflow's dependency chain, ~600+ packages) failed
+intermittently with `SSLError: [SSL] record layer failure` at a different random
+point on every attempt -- confirmed not antivirus/proxy interception (checked:
+only Windows Defender registered, no proxy configured), narrowed to WSL2's virtual
+network adapter. Two mitigations tried and ruled out (disabling checksum offload,
+`--network=host` build); the actual fix was lowering the WSL2 adapter's MTU to
+1350 (`netsh interface ipv4 set subinterface ... mtu=1350`), a classic fix for
+PMTU-blackholing on large TLS transfers. After that, the build completed cleanly
+in one pass with zero retries needed.
+
+**A second, more important bug found and fixed along the way**: the first retry-
+loop workaround (`for i in 1..5; do pip install && break; sleep 5; done`) had a
+real correctness bug -- a bash `for` loop's own exit status is whatever its LAST
+executed command returned, not the command being retried. If every attempt failed,
+the loop's last action was `sleep 5` (exit 0), so Docker reported the `RUN` step
+successful and produced an image silently MISSING every package that hadn't
+finished installing -- caught by actually testing the built image
+(`docker run ... python -c "import mlflow"` raised `ModuleNotFoundError` despite
+`docker build` exiting 0), not by inspecting the Dockerfile. Fixed with an explicit
+success flag and a final check that genuinely fails the build if every attempt
+fails, rather than shipping a broken image that only looked correct.
+
+**Verified for real, end to end**: built the image, ran the container against the
+real `.env` (real Neon credentials), confirmed `GET /health` returns
+`database_connected: true` against live Postgres, confirmed the Docker
+`HEALTHCHECK` itself reports `healthy` (not just "process is up"), confirmed
+`GET /dashboard` returns 200. This is the first and only artifact in either
+project that has gone through the full "actually run it, not just write it and
+assume" discipline for Docker specifically -- previously the most-repeated caveat
+across both projects' security/production-readiness docs.
+
+Full suite: 113/113.
