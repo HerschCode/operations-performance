@@ -416,3 +416,23 @@ diagram (BigQuery path explicitly dashed/labeled as code-complete-but-unrun), an
 badge.
 
 Full suite: 98/98.
+
+## Post-v1.0 build session -- real SHAP explainability
+`src/ml/explain_shap.py` adds real per-prediction SHAP values, closing the gap
+`src/ml/explain.py`'s own docstring named honestly: "this is not SHAP -- it's a
+lightweight approximation." The original module is kept unchanged (nothing depends
+on it changing, and it needs no background dataset) -- this is additive, not a
+breaking replacement. `shap.Explainer` auto-dispatches to the correct underlying
+algorithm for whichever model won training (logistic regression, random forest, or
+gradient boosting -- see `src/ml/train.py`'s 3-way comparison), rather than
+hardcoding a specific explainer type.
+
+4 new tests train a real model on synthetic data (same pattern as
+`test_e2e_scenarios.py::_train_scenario_model`) and run real `shap.Explainer`
+against it -- nothing about shap itself is mocked. Also verified directly against
+the actual production model (`models/sla_risk_model.joblib`, currently
+logistic_regression) and live Neon data, not just the test's synthetic set --
+real SHAP values returned (e.g. `variant_frequency: -2.3155` on the log-odds scale,
+correct for a linear model's LinearExplainer).
+
+Full suite: 102/102.
