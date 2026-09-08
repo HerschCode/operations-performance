@@ -30,6 +30,9 @@ and live Neon data. See PLAN.md.
   interviewer asks specifically "did you use a BI tool."
 - Hyperparameter tuning (grid/random search) and MLflow experiment tracking -- 3-model comparison
   with fixed hyperparameters and time-series CV now exists (`src/ml/train.py`), tuning doesn't yet
-- Wire `src/ml/retrain_trigger.py`'s decision logic to an actual scheduler (cron, Cloud Scheduler,
-  a GitHub Actions cron trigger) -- the logic itself is built and tested; nothing calls it on a
-  schedule yet, since that needs real infrastructure this project doesn't run
+
+## Post-v1.0: retrain trigger wired to a real scheduler
+`.github/workflows/retrain-check.yml` (daily cron) + `scripts/check_and_retrain.py`.
+Verified against real live Neon data, not just mocked tests. Needs `DB_HOST`/
+`DB_NAME`/`DB_USER`/`DB_PASSWORD` set as GitHub Actions repo secrets to actually
+run on schedule. See PLAN.md.
