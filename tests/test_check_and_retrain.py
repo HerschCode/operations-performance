@@ -1,0 +1,63 @@
+"""
+scripts/check_and_retrain.py is the actual scheduled job .github/workflows/
+retrain-check.yml's cron trigger runs -- these tests mock the DB and training
+boundary (no live Postgres/real training run needed for CI) but exercise the
+real dispatch logic: does it correctly skip retraining when not needed, and
+correctly invoke the real training pipeline when it is.
+"""
+from unittest.mock import patch, MagicMock
+
+from src.ml.retrain_trigger import RetrainRecommendation
+
+
+@patch("scripts.check_and_retrain.save_best_model")
+@patch("scripts.check_and_retrain.train_models")
+@patch("scripts.check_and_retrain.build_features")
+@patch("scripts.check_and_retrain.evaluate_sla")
+@patch("scripts.check_and_retrain.load_sla_targets")
+@patch("scripts.check_and_retrain.check_retrain_needed")
+@patch("scripts.check_and_retrain.get_current_case_count")
+def test_skips_retraining_when_not_needed(
+    mock_case_count, mock_check, mock_targets, mock_eval, mock_features, mock_train, mock_save,
+):
+    mock_case_count.return_value = 1000
+    mock_check.return_value = RetrainRecommendation(
+        should_retrain=False, reasons=[], days_since_training=5.0, data_growth_pct=0.02,
+    )
+
+    from scripts.check_and_retrain import main
+    exit_code = main()
+
+    assert exit_code == 0
+    mock_train.assert_not_called()
+    mock_save.assert_not_called()
+
+
+@patch("scripts.check_and_retrain.save_best_model")
+@patch("scripts.check_and_retrain.train_models")
+@patch("scripts.check_and_retrain.build_features")
+@patch("scripts.check_and_retrain.evaluate_sla")
+@patch("scripts.check_and_retrain.load_sla_targets")
+@patch("scripts.check_and_retrain.load_cases")
+@patch("scripts.check_and_retrain.check_retrain_needed")
+@patch("scripts.check_and_retrain.get_current_case_count")
+def test_retrains_when_needed(
+    mock_case_count, mock_check, mock_load_cases, mock_targets, mock_eval,
+    mock_features, mock_train, mock_save,
+):
+    mock_case_count.return_value = 5000
+    mock_check.return_value = RetrainRecommendation(
+        should_retrain=True,
+        reasons=["case volume grew 25.0% since last training"],
+        days_since_training=10.0, data_growth_pct=0.25,
+    )
+    mock_features.return_value = (MagicMock(), MagicMock())
+    mock_train.return_value = {"_columns": [], "_split": {}}
+
+    from scripts.check_and_retrain import main
+    exit_code = main()
+
+    assert exit_code == 0
+    mock_load_cases.assert_called_once()
+    mock_train.assert_called_once()
+    mock_save.assert_called_once()

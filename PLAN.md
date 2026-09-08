@@ -455,3 +455,26 @@ another, a malformed entry is skipped not fatal, legacy API_KEY keeps working
 alongside API_KEYS) plus the 5 original tests, all passing unchanged.
 
 Full suite: 106/106.
+
+## Post-v1.0 build session -- wired the retrain trigger to an actual scheduler
+Closes the exact gap `src/ml/retrain_trigger.py`'s own docstring named: "No
+scheduler is actually wired up in this environment." `.github/workflows/
+retrain-check.yml` runs daily (`workflow_dispatch` also allows manual triggering
+from the Actions tab for testing without waiting a day), calling
+`scripts/check_and_retrain.py` -- which fetches the REAL current case count from
+the live database (not hardcoded, unlike `retrain_trigger.py`'s own illustrative
+`__main__` block) and only retrains if the existing, unchanged decision logic says
+it's warranted.
+
+Verified for real against live Neon data, not just mocked tests: fetched the
+actual 3,000-case count, checked against the real model metadata (trained 0.7 days
+earlier from this session's SHAP work), correctly decided no retraining was
+needed. 2 new tests cover both dispatch paths (skip vs. actually retrain) with the
+DB/training boundary mocked, consistent with this project's existing test style
+for anything needing live infrastructure.
+
+**Requires repo secrets to actually run on GitHub's schedule** (not something I
+can set myself): `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` as GitHub Actions
+secrets on this repo, matching the live Neon credentials already in `.env`.
+
+Full suite: 108/108.
