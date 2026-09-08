@@ -11,3 +11,5 @@ models/*
 *.log
 .ipynb_checkpoints/
 *.pbix
+mlflow.db
+mlruns/

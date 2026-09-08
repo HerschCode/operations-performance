@@ -478,3 +478,32 @@ can set myself): `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` as GitHub Action
 secrets on this repo, matching the live Neon credentials already in `.env`.
 
 Full suite: 108/108.
+
+## Post-v1.0 build session -- hyperparameter tuning + MLflow experiment tracking
+`src/ml/tune.py` adds `RandomizedSearchCV`-based tuning for random forest and
+gradient boosting, additive alongside `train.py`'s fixed-hyperparameter comparison
+(that module's own comment named this gap: "3-model comparison with fixed
+hyperparameters ... tuning doesn't yet"). `cv=TimeSeriesSplit(...)`, not sklearn's
+default k-fold -- same temporal-leakage reasoning `train.py`'s own
+`cross_validate_time_series` already documents.
+
+**Real finding from actually running this against live Neon data, not just
+mocked tests**: MLflow 3.x put the plain `file:./mlruns` tracking backend into
+maintenance mode -- it now raises `MlflowException` unless you explicitly opt
+back in or migrate to a database backend. Switched the default tracking URI to
+`sqlite:///mlflow.db` (MLflow's own recommended path), still zero infrastructure
+needed. Verified for real: ran tuning against the actual live case data,
+`mlflow.db` created, experiment logged (best random forest params found:
+`n_estimators=200, max_depth=6, min_samples_leaf=8`, cv ROC-AUC 0.953).
+
+`scripts/tune_model.py` for manual runs -- deliberately NOT wired into the
+automated retrain path (`scripts/check_and_retrain.py` keeps using `train.py`'s
+fixed hyperparameters), since adopting new hyperparameters is a decision a human
+should review via `mlflow ui`, not something that silently changes on every
+scheduled retrain.
+
+5 new tests: real `RandomizedSearchCV` runs against synthetic data (nothing about
+sklearn's search is mocked), MLflow logging mocked separately, and a direct check
+that `TimeSeriesSplit` (not k-fold) is what's actually constructed.
+
+Full suite: 113/113.
