@@ -1,14 +1,31 @@
 import pandas as pd
 
+# SQL source mapping (both SQL and Python consume the same case-level data):
+#   event_count         -- sourced from build_process_cases() aggregation; parallel
+#                          SQL view: sql/analysis/cycle_time.sql (event counts per case)
+#   variant_frequency   -- sourced from build_process_cases(); parallel SQL view:
+#                          sql/analysis/process_variants.sql (variant distribution)
+#   supplier_id         -- sourced from raw event log; parallel SQL analytics:
+#                          sql/analysis/supplier_performance.sql
+#   category            -- sourced from raw event log; SLA thresholds from
+#                          sql/analysis/sla_performance.sql
+#   first_activity      -- sourced from build_process_cases() (first event per case)
+#   supplier_historical_breach_rate -- no SQL equivalent; computed in Python only
+#                          (requires row-level shift/expanding logic not in SQL layer)
+
 FEATURE_COLUMNS = [
     "event_count",
     "variant_frequency",
     "category",
     "supplier_id",
     "first_activity",
+    "last_activity",       # how a case exited the process; mirrors first_activity rationale
     "start_hour",
     "start_dayofweek",
     "supplier_historical_breach_rate",
+    "sla_target_hours",    # SLA threshold for this case's category; set by config before
+                           # the case ends, so this is not leakage -- tighter targets make
+                           # breach more likely and give the model a direct numeric signal
 ]
 
 
@@ -52,7 +69,7 @@ def build_features(evaluated_cases: pd.DataFrame) -> tuple[pd.DataFrame, pd.Seri
 
     X = df[available].copy()
 
-    for col in ["category", "supplier_id", "first_activity"]:
+    for col in ["category", "supplier_id", "first_activity", "last_activity"]:
         if col in X.columns:
             X[col] = X[col].fillna("UNKNOWN")
             X = pd.get_dummies(X, columns=[col], prefix=col)

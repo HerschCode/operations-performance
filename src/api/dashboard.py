@@ -165,6 +165,15 @@ def dashboard_data():
     return _cache["data"]
 
 
+def _dashboard_html() -> str:
+    return (Path(__file__).parent / "dashboard.html").read_text(encoding="utf-8")
+
+
+@router.get("/", response_class=HTMLResponse, include_in_schema=False)
+def root_page():
+    return _dashboard_html()
+
+
 @router.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
 def dashboard_page():
-    return (Path(__file__).parent / "dashboard.html").read_text(encoding="utf-8")
+    return _dashboard_html()
