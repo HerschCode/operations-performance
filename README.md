@@ -27,11 +27,13 @@ the earlier temporal period, tested on the later one — never a random shuffle)
 
 | Model | Precision | Recall | F1 | ROC-AUC |
 |---|---|---|---|---|
-| Logistic regression (deployed) | 0.981 | 0.983 | 0.982 | 0.847 |
-| Random forest | 0.981 | 0.995 | 0.988 | 0.802 |
-| Gradient boosting | 0.981 | 0.985 | 0.983 | 0.841 |
+| Logistic regression (deployed) | 0.993 | 0.993 | 0.993 | 0.992 |
+| Random forest | 0.981 | 0.995 | 0.988 | 0.984 |
+| Gradient boosting | 0.983 | 0.995 | 0.989 | 0.927 |
 
-5-fold time-series cross-validation (random forest): mean ROC-AUC 0.837 (std 0.136).
+5-fold time-series cross-validation (random forest): mean ROC-AUC 0.937 (std 0.053).
+
+Top features by importance (random forest): `event_count` (0.198), `last_activity_Clear Invoice` (0.123), `last_activity_Create Purchase Order Item` (0.103), `supplier_historical_breach_rate` (0.080), `variant_frequency` (0.078).
 
 ## Architecture
 
@@ -65,8 +67,8 @@ score). They are deliberately separate.
 
 ## Why Logistic Regression?
 
-`save_best_model` selects by ROC-AUC, and logistic regression wins it on every run (0.847 vs
-0.841 for gradient boosting, 0.802 for random forest). Beyond the metric: LR is interpretable
+`save_best_model` selects by ROC-AUC, and logistic regression wins it on every run (0.992 vs
+0.927 for gradient boosting, 0.984 for random forest). Beyond the metric: LR is interpretable
 through its coefficients — an analyst can read off which features push a case toward high risk —
 and it produces predictions in microseconds rather than milliseconds, which matters for a
 synchronous API endpoint under load. The ensemble models were tuned and evaluated honestly; LR
