@@ -230,6 +230,9 @@
   .bn-val { min-width: 46px; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
 
   /* ── Supplier table ──────────────────────────────────────────────────────── */
+  .supplier-filter { width: 100%; box-sizing: border-box; padding: 6px 10px; margin-bottom: 10px; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.82rem; outline: none; }
+  .supplier-filter:focus { border-color: var(--accent); }
+  .supplier-filter::placeholder { color: var(--muted); }
   .table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
   th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); }
@@ -365,6 +368,7 @@
     <div class="card">
       <h2>Supplier Performance <span class="badge">min 3 orders · ranked by cycle time</span></h2>
       <div class="card-sublabel">Breach rate colour: <span class="breach-good">green &lt;10%</span> · <span class="breach-warn">yellow 10–25%</span> · <span class="breach-bad">red &gt;25%</span></div>
+      <input id="supplier-filter" class="supplier-filter" type="text" placeholder="Filter by supplier ID…" aria-label="Filter suppliers" />
       <div class="table-wrap" id="suppliers-body">
         <div class="skeleton"></div><div class="skeleton short"></div><div class="skeleton" style="width:85%"></div>
       </div>
@@ -585,23 +589,21 @@ function renderRisk(data) {
 }
 
 // ── Supplier Performance ──────────────────────────────────────────────────────
-function renderSuppliers(data) {
+let _suppliersAll = [];
+
+function _renderSuppliersTable(suppliers) {
   const el = document.getElementById('suppliers-body');
-  if (!data.available || !data.suppliers || !data.suppliers.length) {
-    el.innerHTML = empty('No supplier data available yet.');
+  if (!suppliers.length) {
+    el.innerHTML = empty('No suppliers match the filter.');
     return;
   }
-  // find worst breach rate supplier
-  const worstIdx = data.suppliers.reduce((wi, s, i, arr) => {
-    const bp = s.sla_breach_rate ?? 0;
-    const wbp = arr[wi].sla_breach_rate ?? 0;
-    return bp > wbp ? i : wi;
+  const worstIdx = suppliers.reduce((wi, s, i, arr) => {
+    return (s.sla_breach_rate ?? 0) > (arr[wi].sla_breach_rate ?? 0) ? i : wi;
   }, 0);
-
   el.innerHTML = `
     <div class="table-wrap"><table>
       <thead><tr><th>Supplier</th><th class="num">Orders</th><th class="num">Avg Cycle</th><th class="num">Breach Rate</th></tr></thead>
-      <tbody>${data.suppliers.map((s, i) => {
+      <tbody>${suppliers.map((s, i) => {
         const bp = s.sla_breach_rate != null ? s.sla_breach_rate * 100 : null;
         const bpFmt = bp != null ? bp.toFixed(0) + '%' : '—';
         const bpCls = bp == null ? '' : bp > 25 ? 'breach-bad' : bp > 10 ? 'breach-warn' : 'breach-good';
@@ -615,6 +617,22 @@ function renderSuppliers(data) {
       }).join('')}
       </tbody>
     </table></div>`;
+}
+
+function renderSuppliers(data) {
+  const el = document.getElementById('suppliers-body');
+  if (!data.available || !data.suppliers || !data.suppliers.length) {
+    el.innerHTML = empty('No supplier data available yet.');
+    return;
+  }
+  _suppliersAll = data.suppliers;
+  _renderSuppliersTable(_suppliersAll);
+  const filterEl = document.getElementById('supplier-filter');
+  filterEl.addEventListener('input', () => {
+    const q = filterEl.value.trim().toLowerCase();
+    const filtered = q ? _suppliersAll.filter(s => String(s.supplier_id).toLowerCase().includes(q)) : _suppliersAll;
+    _renderSuppliersTable(filtered);
+  });
 }
 
 // ── Process Conformance ───────────────────────────────────────────────────────
