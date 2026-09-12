@@ -5,11 +5,46 @@ FEATURE_COLUMNS = [
     "variant_frequency",
     "category",
     "supplier_id",
+    "first_activity",
+    "start_hour",
+    "start_dayofweek",
+    "supplier_historical_breach_rate",
 ]
 
 
+def _add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Adds features beyond the raw case-level columns. Each one is checked for
+    leakage before being added -- a feature computed from information only
+    available once the case is already finished (e.g. anything derived from
+    end_time or cycle_time_hours, which is literally how sla_breach itself is
+    defined) would let the model see its own target, so none of these touch
+    those columns."""
+    if "start_time" in df.columns:
+        df["start_hour"] = df["start_time"].dt.hour
+        df["start_dayofweek"] = df["start_time"].dt.dayofweek
+
+    # Causal (expanding, shifted) per-supplier breach rate -- at the time each
+    # case STARTS, what fraction of that supplier's PRIOR cases (sorted by
+    # start_time, strictly before this one) breached SLA. shift(1) excludes the
+    # current row itself, so a supplier's first-ever case sees no history (NaN,
+    # filled with the training set's overall breach rate as a neutral prior)
+    # rather than peeking at its own outcome.
+    if "supplier_id" in df.columns and "sla_breach" in df.columns:
+        ordered = df.sort_values("start_time")
+        expanding_rate = (
+            ordered.groupby("supplier_id")["sla_breach"]
+            .apply(lambda s: s.shift(1).expanding().mean())
+            .reset_index(level=0, drop=True)
+        )
+        df["supplier_historical_breach_rate"] = expanding_rate.reindex(df.index)
+        overall_prior = df["sla_breach"].astype(int).mean()
+        df["supplier_historical_breach_rate"] = df["supplier_historical_breach_rate"].fillna(overall_prior)
+
+    return df
+
+
 def build_features(evaluated_cases: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
-    df = evaluated_cases.copy()
+    df = _add_derived_features(evaluated_cases.copy())
 
     available = [c for c in FEATURE_COLUMNS if c in df.columns]
     if not available:
@@ -17,7 +52,7 @@ def build_features(evaluated_cases: pd.DataFrame) -> tuple[pd.DataFrame, pd.Seri
 
     X = df[available].copy()
 
-    for col in ["category", "supplier_id"]:
+    for col in ["category", "supplier_id", "first_activity"]:
         if col in X.columns:
             X[col] = X[col].fillna("UNKNOWN")
             X = pd.get_dummies(X, columns=[col], prefix=col)
