@@ -144,6 +144,18 @@ SLA, for an automated risk score) — they're deliberately not merged into one p
 because a stage-duration ranking and a per-case risk prediction are different outputs
 for different consumers, not two halves of the same computation.
 
+## API latency
+
+Measured, not assumed — every endpoint's server-side cost, real Neon Postgres,
+no mocking. Two separate findings, not one: a real, code-confirmed gap (no
+caching layer — every request re-reads and recomputes from the full
+underlying tables) that will get worse as data grows, and a real reason the
+absolute numbers measured here shouldn't be trusted yet (this benchmarking
+machine's network path to Neon is measurably slower and noisier than
+Render's own — confirmed by comparing against the live deployment's own
+health-check timing). Full numbers, methodology, and why the second point
+matters as much as the first: [`docs/api-latency.md`](docs/api-latency.md).
+
 ## Architecture
 ![Architecture diagram](docs/architecture.svg)
 
