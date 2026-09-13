@@ -13,6 +13,17 @@ def build_process_cases(events: pd.DataFrame) -> pd.DataFrame:
         end_time=("timestamp", "max"),
     ).reset_index()
 
+    # Process-signal features: unique activities and rework.
+    # unique_activity_count -- number of distinct activity types in the case.
+    # rework_count -- activities that appear more than once (second+ occurrence each):
+    #   s.duplicated().sum() counts every occurrence after the first, which is a
+    #   direct proxy for how many times the process re-entered a step it had already
+    #   visited -- the process-mining definition of rework.
+    unique_acts = grouped["activity"].apply(lambda s: s.nunique())
+    rework      = grouped["activity"].apply(lambda s: s.duplicated().sum())
+    cases = cases.merge(unique_acts.rename("unique_activity_count"), on="case_id", how="left")
+    cases = cases.merge(rework.rename("rework_count"),              on="case_id", how="left")
+
     cases["cycle_time_hours"] = (
         cases["end_time"] - cases["start_time"]
     ).dt.total_seconds() / 3600

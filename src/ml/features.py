@@ -13,20 +13,48 @@ import pandas as pd
 #   supplier_historical_breach_rate -- no SQL equivalent; computed in Python only
 #                          (requires row-level shift/expanding logic not in SQL layer)
 
+# Feature families for ablation study (scripts/ablation_study.py):
+#   baseline         — structural case-level signals available immediately
+#   temporal         — time-of-day / calendar signals from start_time only
+#   process          — process-mining signals from the event sequence
+#   supplier_history — causal per-supplier history, shift(1) prevents leakage
+# All families together = FEATURE_COLUMNS below.
+
 FEATURE_COLUMNS = [
+    # ── baseline ────────────────────────────────────────────────────────
     "event_count",
     "variant_frequency",
     "category",
     "supplier_id",
-    "first_activity",
-    "last_activity",       # how a case exited the process; mirrors first_activity rationale
+    # ── temporal ────────────────────────────────────────────────────────
     "start_hour",
     "start_dayofweek",
-    "supplier_historical_breach_rate",
+    "start_month",         # captures intra-year seasonality (year-end rush, slow August)
+    "start_quarter",       # coarser seasonal bucket useful when month is too sparse
+    # ── process ─────────────────────────────────────────────────────────
+    "first_activity",
+    "last_activity",
+    "unique_activity_count",   # breadth of the process path
+    "rework_count",            # repeated activities = re-work or system glitch; correlates
+                               # with delay and non-conformance (see conformance analysis)
+    # ── supplier history ────────────────────────────────────────────────
+    "supplier_historical_breach_rate",      # expanding mean, shift(1) — no leakage
+    "supplier_historical_median_cycle_time",# expanding median, shift(1) — no leakage
     "sla_target_hours",    # SLA threshold for this case's category; set by config before
-                           # the case ends, so this is not leakage -- tighter targets make
+                           # the case ends, so this is not leakage — tighter targets make
                            # breach more likely and give the model a direct numeric signal
 ]
+
+FEATURE_FAMILIES = {
+    "baseline": ["event_count", "variant_frequency", "category", "supplier_id"],
+    "temporal": ["start_hour", "start_dayofweek", "start_month", "start_quarter"],
+    "process":  ["first_activity", "last_activity", "unique_activity_count", "rework_count"],
+    "supplier_history": [
+        "supplier_historical_breach_rate",
+        "supplier_historical_median_cycle_time",
+        "sla_target_hours",
+    ],
+}
 
 
 def _add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -39,6 +67,8 @@ def _add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     if "start_time" in df.columns:
         df["start_hour"] = df["start_time"].dt.hour
         df["start_dayofweek"] = df["start_time"].dt.dayofweek
+        df["start_month"] = df["start_time"].dt.month
+        df["start_quarter"] = df["start_time"].dt.quarter
 
     # Causal (expanding, shifted) per-supplier breach rate -- at the time each
     # case STARTS, what fraction of that supplier's PRIOR cases (sorted by
@@ -56,6 +86,19 @@ def _add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
         df["supplier_historical_breach_rate"] = expanding_rate.reindex(df.index)
         overall_prior = df["sla_breach"].astype(int).mean()
         df["supplier_historical_breach_rate"] = df["supplier_historical_breach_rate"].fillna(overall_prior)
+
+    # Causal per-supplier median cycle time — expanding median of prior completed
+    # cases, shift(1) prevents peeking at the current case's own cycle time.
+    if "supplier_id" in df.columns and "cycle_time_hours" in df.columns:
+        ordered = df.sort_values("start_time")
+        expanding_med = (
+            ordered.groupby("supplier_id")["cycle_time_hours"]
+            .apply(lambda s: s.shift(1).expanding().median())
+            .reset_index(level=0, drop=True)
+        )
+        df["supplier_historical_median_cycle_time"] = expanding_med.reindex(df.index)
+        overall_med = df["cycle_time_hours"].median()
+        df["supplier_historical_median_cycle_time"] = df["supplier_historical_median_cycle_time"].fillna(overall_med)
 
     return df
 
