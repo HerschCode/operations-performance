@@ -1,6 +1,6 @@
 {
   "model_name": "random_forest",
-  "trained_at": "2026-09-13T02:51:42.923512+00:00",
+  "trained_at": "2026-09-13T07:24:17.564154+00:00",
   "train_row_count": 2400,
   "test_row_count": 600,
   "roc_auc": 0.9857
