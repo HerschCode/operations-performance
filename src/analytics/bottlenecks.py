@@ -2,11 +2,23 @@ import pandas as pd
 from src.analytics.cycle_time import stage_summary
 
 
-def identify_bottlenecks(events: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
+def identify_bottlenecks(events: pd.DataFrame, top_n: int = 10, min_case_count: int = 5) -> pd.DataFrame:
+    """min_case_count guards against a real issue found on the live BPI 2019 data:
+    a stage transition that only 1-2 cases ever go through can have a mean delay
+    of tens of thousands of hours purely from one real, anomalous case in the
+    public dataset (a data-quality property of BPI 2019 itself, not a bug in this
+    code) -- ranking by raw mean with no sample-size floor puts that single-case
+    noise at the top of "Top Bottlenecks", crowding out the systemic bottlenecks
+    that actually affect many cases. pct_of_total_delay is still computed against
+    ALL stages (not just the ones meeting the floor), so it keeps meaning "share
+    of total measured delay" rather than silently changing denominator when the
+    floor is applied -- verified by tests/test_data_correctness.py's golden-dataset
+    percentage assertion, which uses a stage well above this floor."""
     summary = stage_summary(events)
     total_hours = summary["avg_hours"].sum()
     summary["pct_of_total_delay"] = (summary["avg_hours"] / total_hours) * 100
-    return summary.head(top_n).reset_index(drop=True)
+    summary = summary[summary["case_count"] >= min_case_count]
+    return summary.sort_values("avg_hours", ascending=False).head(top_n).reset_index(drop=True)
 
 
 def bottlenecks_by_segment(

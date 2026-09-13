@@ -8,6 +8,14 @@ data/processed/*
 !data/processed/.gitkeep
 models/*
 !models/.gitkeep
+# The trained model IS committed (small, ~800KB) -- Render's build clones from git,
+# not the local disk, so a gitignored model file means the live deployment's
+# SLA Risk dashboard panel has nothing to load, ever. Retrain locally
+# (python -m src.ml.train) and commit the updated .joblib/.meta.json when the
+# feature set or training data changes -- this is a deliberate exception to
+# "don't commit build artifacts", not an oversight.
+!models/sla_risk_model.joblib
+!models/sla_risk_model.meta.json
 *.log
 .ipynb_checkpoints/
 *.pbix

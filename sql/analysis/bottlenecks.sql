@@ -20,4 +20,11 @@ SELECT
 FROM stage_durations
 WHERE stage IS NOT NULL
 GROUP BY stage
+-- Sample-size floor: on the real BPI 2019 data, a stage transition only 1-2 cases
+-- ever go through can average tens of thousands of hours from a single real
+-- anomalous case, crowding out systemic bottlenecks that actually affect many
+-- cases -- the same fix applied in src/analytics/bottlenecks.py's
+-- identify_bottlenecks(min_case_count=5), kept in sync here since this query is
+-- the SQL equivalent of that function.
+HAVING COUNT(*) >= 5
 ORDER BY avg_hours DESC;

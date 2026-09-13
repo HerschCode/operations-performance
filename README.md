@@ -181,11 +181,30 @@ SELECT
 FROM stage_durations
 WHERE stage IS NOT NULL
 GROUP BY stage
+HAVING COUNT(*) >= 5  -- real BPI 2019 finding: a 1-2 case stage can average tens of
+                      -- thousands of hours from one anomalous case, crowding out
+                      -- systemic bottlenecks -- see the live dashboard fix below
 ORDER BY avg_hours DESC;
 ```
 Verified against a hand-derived golden dataset (`docs/data-correctness-audit.md`) — the
 query's output was checked against independently-calculated expected values, not just
 "it runs and returns something plausible."
+
+**Real bug found and fixed while checking the live dashboard, not just the query in
+isolation:** the deployed [dashboard](https://operations-performance.onrender.com)'s
+Top Bottlenecks panel was ranking by raw mean with no sample-size floor — on the real
+BPI 2019 data, two stages that only 1-2 cases ever pass through had means of 74,567h
+and 51,915h (single real anomalous cases in the public dataset dominating a
+one-or-two-row average), crowding the top of the list and making a genuinely useful
+panel look broken. Fixed in both `src/analytics/bottlenecks.py`
+(`identify_bottlenecks(min_case_count=5)`) and this SQL query (`HAVING COUNT(*) >= 5`,
+kept in sync since one is the SQL equivalent of the other) — verified live: the top
+bottleneck is now "Cancel Goods Receipt → Cancel Invoice Receipt" at 5,046h avg /
+4,381h median across 6 real cases, a systemic finding instead of single-case noise.
+Separately, the deployed model powering the dashboard's SLA Risk panel was
+gitignored — meaning the live Render deployment had never had a trained model to
+load, ever, since Render builds from git, not local disk. `models/*.joblib` is now a
+deliberate exception in `.gitignore` (small file, ~800KB) rather than left broken.
 
 **Relationship to the ML pipeline, stated explicitly:** this file and `src/ml/features.py`
 are two independent consumers of the same underlying case data

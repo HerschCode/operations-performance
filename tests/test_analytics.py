@@ -50,7 +50,11 @@ def test_cycle_time_percentiles_returns_expected_keys():
 
 
 def test_identify_bottlenecks_percentages_sum_near_100():
-    bottlenecks = identify_bottlenecks(sample_events(), top_n=10)
+    # min_case_count=1: this fixture's stages each have only 1-2 cases, well under
+    # the real min_case_count=5 default that exists to filter single-case noise on
+    # the actual BPI 2019 data -- this test verifies the percentage math, not the
+    # sample-size floor, so it explicitly opts out of that floor.
+    bottlenecks = identify_bottlenecks(sample_events(), top_n=10, min_case_count=1)
     # top_n=10 with only a few distinct stages should capture ~all of them
     assert bottlenecks["pct_of_total_delay"].sum() == pytest.approx(100.0, rel=0.01)
 
