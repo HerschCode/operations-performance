@@ -36,18 +36,26 @@ def sample_cases():
 
 
 def sample_events():
-    return pd.DataFrame({
-        "case_id": ["C1", "C1", "C2", "C2"],
-        "activity": ["Purchase Requisition", "Approval", "Purchase Requisition", "Approval"],
-        "timestamp": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-05", "2024-01-06"]),
-    })
+    # 5 cases through the same stage transition -- identify_bottlenecks() has a
+    # real min_case_count=5 floor (see src/analytics/bottlenecks.py) added after
+    # a live bug where 1-2 case stages showed tens-of-thousands-of-hours means
+    # from single anomalous cases; a 2-case fixture would always be filtered out
+    # and this test would spuriously see an empty "stages" list.
+    case_ids = [f"C{i}" for i in range(1, 6)]
+    rows = {"case_id": [], "activity": [], "timestamp": []}
+    for i, cid in enumerate(case_ids):
+        rows["case_id"] += [cid, cid]
+        rows["activity"] += ["Purchase Requisition", "Approval"]
+        rows["timestamp"] += [f"2024-01-{i+1:02d}", f"2024-01-{i+2:02d}"]
+    rows["timestamp"] = pd.to_datetime(rows["timestamp"])
+    return pd.DataFrame(rows)
 
 
 def test_dashboard_page_serves_html_without_auth():
     response = client.get("/dashboard")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
-    assert "Operations Performance" in response.text
+    assert "Supply Chain Analytics" in response.text
 
 
 def test_dashboard_data_works_without_auth_key():
