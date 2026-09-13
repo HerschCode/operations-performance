@@ -16,6 +16,20 @@ explainer to use; it lets shap decide based on the actual fitted estimator.
 import pandas as pd
 
 
+def _unwrap_for_shap(model):
+    """SHAP's TreeExplainer needs the raw sklearn estimator, not a
+    CalibratedClassifierCV wrapper around it. Unwrap if needed."""
+    try:
+        from sklearn.calibration import CalibratedClassifierCV
+        if isinstance(model, CalibratedClassifierCV):
+            # calibrated_classifiers_ is a list of (base_estimator, calibrator) pairs.
+            # All base estimators are the same fitted model — take the first.
+            return model.calibrated_classifiers_[0].estimator
+    except Exception:
+        pass
+    return model
+
+
 def explain_prediction_shap(
     model, background_data: pd.DataFrame, feature_row: pd.DataFrame, top_n: int = 5
 ) -> list[dict]:
@@ -28,7 +42,7 @@ def explain_prediction_shap(
     feature overall)."""
     import shap
 
-    explainer = shap.Explainer(model, background_data)
+    explainer = shap.Explainer(_unwrap_for_shap(model), background_data)
     shap_values = explainer(feature_row)
 
     # shap_values.values has shape (1, n_features) for a single row, or
@@ -61,7 +75,7 @@ def explain_batch_shap(
     scoring), not one case in isolation."""
     import shap
 
-    explainer = shap.Explainer(model, background_data)
+    explainer = shap.Explainer(_unwrap_for_shap(model), background_data)
     shap_values = explainer(features)
 
     values = shap_values.values

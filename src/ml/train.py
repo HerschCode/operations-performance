@@ -2,10 +2,17 @@ import joblib
 import numpy as np
 import pandas as pd
 from pathlib import Path
+from sklearn.calibration import CalibratedClassifierCV, calibration_curve
+try:
+    from sklearn.frozen import FrozenEstimator as _FrozenEstimator
+except ImportError:
+    _FrozenEstimator = None
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import (
+    average_precision_score,
+    brier_score_loss,
     precision_score,
     recall_score,
     f1_score,
@@ -37,13 +44,14 @@ def train_models(
 
     results = {}
 
-    # Logistic regression is deployed because it wins ROC-AUC on every run of this pipeline
-    # (0.847 vs 0.802 for random forest), is interpretable via signed coefficients, and
-    # produces predictions in microseconds vs. milliseconds for the ensemble alternatives.
     baseline = LogisticRegression(max_iter=3000, class_weight="balanced")
     baseline.fit(X_train, y_train)
     results["logistic_regression"] = _evaluate(baseline, X_test, y_test)
     results["logistic_regression"]["model"] = baseline
+    results["logistic_regression"]["calibrated_model"] = calibrate_model(baseline, X_train, y_train)
+    results["logistic_regression"]["calibrated_eval"] = _evaluate(
+        results["logistic_regression"]["calibrated_model"], X_test, y_test
+    )
 
     forest = RandomForestClassifier(
         n_estimators=200, max_depth=8, class_weight="balanced", random_state=random_state
@@ -51,6 +59,10 @@ def train_models(
     forest.fit(X_train, y_train)
     results["random_forest"] = _evaluate(forest, X_test, y_test)
     results["random_forest"]["model"] = forest
+    results["random_forest"]["calibrated_model"] = calibrate_model(forest, X_train, y_train)
+    results["random_forest"]["calibrated_eval"] = _evaluate(
+        results["random_forest"]["calibrated_model"], X_test, y_test
+    )
     results["random_forest"]["feature_importances"] = dict(
         sorted(
             zip(X.columns, forest.feature_importances_),
@@ -75,6 +87,10 @@ def train_models(
     boosting.fit(X_train, y_train, sample_weight=sample_weight)
     results["gradient_boosting"] = _evaluate(boosting, X_test, y_test)
     results["gradient_boosting"]["model"] = boosting
+    results["gradient_boosting"]["calibrated_model"] = calibrate_model(boosting, X_train, y_train)
+    results["gradient_boosting"]["calibrated_eval"] = _evaluate(
+        results["gradient_boosting"]["calibrated_model"], X_test, y_test
+    )
     results["gradient_boosting"]["feature_importances"] = dict(
         sorted(
             zip(X.columns, boosting.feature_importances_),
@@ -93,16 +109,51 @@ def train_models(
     return results
 
 
+def calibrate_model(model, X_train, y_train, method: str = "isotonic"):
+    """Wrap a fitted classifier in Platt scaling (method='sigmoid') or isotonic
+    regression (method='isotonic') so predicted probabilities are calibrated —
+    i.e. P(breach | score=0.7) ≈ 70% of cases actually breach, not just "this
+    case ranks higher than cases scored below 0.7".
+
+    Uses cv='prefit' / FrozenEstimator (sklearn ≥1.6) because the base model is
+    already trained on X_train; this fits only the calibration layer on the same
+    training data, which is fine for a portfolio pipeline (in production you'd
+    calibrate on a held-out calibration split to avoid overfitting the
+    calibration layer itself).
+    """
+    if _FrozenEstimator is not None:
+        cal = CalibratedClassifierCV(_FrozenEstimator(model), method=method)
+    else:
+        cal = CalibratedClassifierCV(model, cv="prefit", method=method)
+    cal.fit(X_train, y_train)
+    return cal
+
+
 def _evaluate(model, X_test, y_test) -> dict:
     preds = model.predict(X_test)
     probs = model.predict_proba(X_test)[:, 1]
+
+    # calibration_curve bins the test set into n_bins probability buckets and
+    # computes the observed breach rate per bucket. fraction_of_positives[i]
+    # is the actual proportion of breaches among cases the model scored in
+    # bucket i. mean_predicted_value[i] is the mean predicted probability in
+    # that bucket. A perfectly calibrated model has them equal.
+    frac_pos, mean_pred = calibration_curve(y_test, probs, n_bins=10, strategy="quantile")
 
     return {
         "precision": precision_score(y_test, preds, zero_division=0),
         "recall": recall_score(y_test, preds, zero_division=0),
         "f1": f1_score(y_test, preds, zero_division=0),
         "roc_auc": roc_auc_score(y_test, probs),
+        "pr_auc": average_precision_score(y_test, probs),
+        "brier_score": brier_score_loss(y_test, probs),
         "confusion_matrix": confusion_matrix(y_test, preds).tolist(),
+        # reliability diagram data — stored in bundle so API / dashboard can
+        # surface it without re-computing at inference time
+        "calibration_curve": {
+            "fraction_of_positives": frac_pos.tolist(),
+            "mean_predicted_value": mean_pred.tolist(),
+        },
     }
 
 
@@ -175,12 +226,20 @@ def save_best_model(results: dict, out_path: str | Path = "models/sla_risk_model
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Save calibrated model as the primary serving artifact. The raw model is
+    # also stored for comparison / debugging, but the API serves probabilities
+    # from the calibrated wrapper so P(breach)=0.7 means ~70% of similarly
+    # scored cases actually breach, not just a ranking score.
     joblib.dump(
         {
-            "model": best["model"],
+            "model": best.get("calibrated_model", best["model"]),
+            "uncalibrated_model": best["model"],
             "columns": results["_columns"],
             "name": best_name,
             "feature_importances": best.get("feature_importances"),
+            "calibration_curve": best.get("calibrated_eval", best).get("calibration_curve"),
+            "brier_score": best.get("calibrated_eval", best).get("brier_score"),
         },
         out_path,
     )
@@ -219,10 +278,16 @@ if __name__ == "__main__":
     results = train_models(X, y, evaluated)
 
     print(f"Split: {results['_split']}\n")
+    print(f"{'Model':<25} {'Prec':>6} {'Rec':>6} {'F1':>6} {'ROC-AUC':>8} {'PR-AUC':>7} {'Brier':>7}  (raw → calibrated)")
+    print("-" * 90)
     for name in ["logistic_regression", "random_forest", "gradient_boosting"]:
         r = results[name]
-        print(f"{name}: precision={r['precision']:.3f} recall={r['recall']:.3f} "
-              f"f1={r['f1']:.3f} roc_auc={r['roc_auc']:.3f}")
+        cal = r.get("calibrated_eval", r)
+        print(
+            f"{name:<25} {r['precision']:>6.3f} {r['recall']:>6.3f} {r['f1']:>6.3f} "
+            f"{r['roc_auc']:>8.3f} {r.get('pr_auc', 0):>7.3f} {r.get('brier_score', 0):>7.4f}"
+            f"  → Brier {cal.get('brier_score', 0):.4f}"
+        )
 
     print("\nTop features (random forest):")
     for feat, importance in list(results["random_forest"]["feature_importances"].items())[:5]:

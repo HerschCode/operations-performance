@@ -35,6 +35,18 @@ replaced rather than left inconsistent with the ablation study below):
 
 5-fold time-series cross-validation (random forest): mean ROC-AUC 0.945 (std 0.048).
 
+**Probability calibration** (`scripts/calibration_analysis.py` — reproduce with one command):
+
+| Model | Brier score (raw) | Brier score (calibrated) | Brier Skill Score | Improvement |
+|---|---|---|---|---|
+| Logistic regression | 0.0180 | 0.0151 | 0.479 | +0.0029 |
+| Random forest | 0.0245 | 0.0215 | 0.263 | +0.0031 |
+| Gradient boosting | 0.0170 | **0.0138** | **0.526** | +0.0032 |
+
+Baseline (always predict 97% breach rate): Brier = 0.0291. Brier Skill Score > 0 means better than the naive forecaster; a score of 0.526 means the calibrated GB model explains 52.6% of the improvable uncertainty. Calibration uses isotonic regression via `CalibratedClassifierCV(FrozenEstimator(model))` on the training split — the calibrated model is what the API serves, not the raw probability output.
+
+**Why this matters operationally:** ROC-AUC of 0.986 means the model ranks cases correctly. Brier score measures whether `breach_probability: 0.73` actually means ~73% of similar cases breach — a calibrated score is a decision input, not just a ranking. An operations team setting intervention thresholds needs calibrated probabilities to reason about cost vs. benefit; a poorly calibrated model produces misleading risk scores even at high AUC.
+
 Top features by importance (random forest): `unique_activity_count` (0.161), `event_count`
 (0.122), `last_activity_Clear Invoice` (0.119), `supplier_historical_median_cycle_time` (0.095),
 `variant_frequency` (0.089) — consistent with the ablation study's finding that the process family
