@@ -11,6 +11,7 @@ from src.api.schemas import (
     SlaSummaryRow,
     SupplierScoreRow,
     SlaRiskResponse,
+    FactorExplanation,
     PipelineRunRow,
     ConformanceResponse,
     SlaRiskDistributionResponse,
@@ -23,6 +24,7 @@ from src.analytics.supplier_analysis import supplier_scorecard
 from src.analytics.conformance import check_conformance, conformance_report
 from src.ml.predict import load_model, predict_sla_risk
 from src.ml.features import build_features
+from src.ml.explain_shap import explain_prediction_shap
 from src.reports.generate_management_report import build_management_report, render_markdown
 
 router = APIRouter()
@@ -89,13 +91,14 @@ def supplier_performance(min_volume: int = Query(default=5, ge=1)):
 
 
 @router.get("/orders/{case_id}/risk", response_model=SlaRiskResponse)
-def order_risk(case_id: str):
+def order_risk(case_id: str, explain: bool = Query(default=False, description="Include SHAP top-5 feature contributions in the response")):
     cases = load_cases()
     match = cases[cases["case_id"] == case_id]
     if match.empty:
         raise HTTPException(status_code=404, detail=f"No case found with case_id '{case_id}'")
 
-    evaluated = evaluate_sla(match, load_sla_targets())
+    sla_targets = load_sla_targets()
+    evaluated = evaluate_sla(match, sla_targets)
     X, _ = build_features(evaluated)
 
     try:
@@ -107,10 +110,24 @@ def order_risk(case_id: str):
         )
 
     prediction = predict_sla_risk(X, bundle)
+
+    explanation = None
+    if explain:
+        # Use all cases as SHAP background (already loaded); align to the same
+        # column set the model was trained on so the explainer sees the right shape.
+        all_evaluated = evaluate_sla(cases, sla_targets)
+        X_all, _ = build_features(all_evaluated)
+        cols = bundle["columns"]
+        X_all_aligned = X_all.reindex(columns=cols, fill_value=0)
+        X_case_aligned = X.reindex(columns=cols, fill_value=0)
+        raw = explain_prediction_shap(bundle["model"], X_all_aligned, X_case_aligned, top_n=5)
+        explanation = [FactorExplanation(**f) for f in raw]
+
     return SlaRiskResponse(
         case_id=case_id,
         breach_probability=float(prediction.iloc[0]["breach_probability"]),
         risk_level=str(prediction.iloc[0]["risk_level"]),
+        explanation=explanation,
     )
 
 

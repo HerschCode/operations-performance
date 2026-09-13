@@ -65,6 +65,58 @@ def test_order_risk_endpoint_404_on_unknown_case(mock_load_cases):
     assert response.status_code == 404
 
 
+@patch("src.api.routes.explain_prediction_shap")
+@patch("src.api.routes.load_model")
+@patch("src.api.routes.load_cases")
+def test_order_risk_explain_returns_explanation(mock_load_cases, mock_load_model, mock_explain):
+    import numpy as np
+    from sklearn.linear_model import LogisticRegression
+    from src.ml.features import build_features
+    from src.analytics.sla_analysis import load_sla_targets, evaluate_sla
+
+    cases = sample_cases()
+    mock_load_cases.return_value = cases
+    sla_targets = load_sla_targets()
+    evaluated = evaluate_sla(cases, sla_targets)
+    X, _ = build_features(evaluated)
+    lr = LogisticRegression(max_iter=100)
+    lr.fit(X, np.array([0, 1, 0]))
+    mock_load_model.return_value = {"model": lr, "columns": X.columns.tolist()}
+    mock_explain.return_value = [
+        {"feature": "event_count", "shap_value": 0.12, "value": 4},
+        {"feature": "variant_frequency", "shap_value": -0.05, "value": 2},
+    ]
+
+    response = client.get("/orders/C1/risk?explain=true")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["explanation"] is not None
+    assert body["explanation"][0]["feature"] == "event_count"
+    assert mock_explain.called
+
+
+@patch("src.api.routes.load_model")
+@patch("src.api.routes.load_cases")
+def test_order_risk_no_explain_omits_explanation(mock_load_cases, mock_load_model):
+    import numpy as np
+    from sklearn.linear_model import LogisticRegression
+    from src.ml.features import build_features
+    from src.analytics.sla_analysis import load_sla_targets, evaluate_sla
+
+    cases = sample_cases()
+    mock_load_cases.return_value = cases
+    sla_targets = load_sla_targets()
+    evaluated = evaluate_sla(cases, sla_targets)
+    X, _ = build_features(evaluated)
+    lr = LogisticRegression(max_iter=100)
+    lr.fit(X, np.array([0, 1, 0]))
+    mock_load_model.return_value = {"model": lr, "columns": X.columns.tolist()}
+
+    response = client.get("/orders/C1/risk")
+    assert response.status_code == 200
+    assert response.json()["explanation"] is None
+
+
 @patch("src.api.routes.pd.read_sql")
 @patch("src.api.routes.get_engine")
 def test_pipeline_runs_endpoint(mock_get_engine, mock_read_sql):

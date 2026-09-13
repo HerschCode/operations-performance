@@ -39,10 +39,17 @@ class SupplierScoreRow(BaseModel):
     rank_by_cycle_time: float
 
 
+class FactorExplanation(BaseModel):
+    feature: str
+    shap_value: float
+    value: float
+
+
 class SlaRiskResponse(BaseModel):
     case_id: str
     breach_probability: float
     risk_level: str
+    explanation: list[FactorExplanation] | None = None
 
 
 class PipelineRunRow(BaseModel):
