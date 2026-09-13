@@ -55,7 +55,7 @@ def test_dashboard_page_serves_html_without_auth():
     response = client.get("/dashboard")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
-    assert "Supply Chain Analytics" in response.text
+    assert "Procure-to-Pay Intelligence" in response.text
 
 
 def test_dashboard_data_works_without_auth_key():

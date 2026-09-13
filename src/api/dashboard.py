@@ -16,6 +16,8 @@ own "not available" state) rather than one failure blanking the whole page.
 import time
 from pathlib import Path
 
+import pandas as pd
+
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 
@@ -27,6 +29,7 @@ from src.analytics.supplier_analysis import supplier_scorecard
 from src.analytics.conformance import check_conformance, conformance_report
 from src.ml.predict import load_model, predict_sla_risk
 from src.ml.features import build_features
+from src.ml.explain import explain_prediction
 
 router = APIRouter()
 
@@ -88,6 +91,76 @@ def _conformance(events):
     }
 
 
+def _humanize_feature(name: str) -> str:
+    simple = {
+        "unique_activity_count": "Process complexity (many unique steps)",
+        "event_count": "High event count",
+        "rework_count": "Repeated activities (rework)",
+        "supplier_historical_breach_rate": "Supplier breach history",
+        "supplier_historical_median_cycle_time": "Slow supplier cycle time",
+        "sla_target_hours": "Tight SLA deadline",
+        "variant_frequency": "Unusual process path",
+        "start_hour": "Unusual start hour",
+        "start_dayofweek": "Day-of-week pattern",
+        "start_month": "Seasonal timing",
+        "start_quarter": "Quarterly timing",
+    }
+    if name in simple:
+        return simple[name]
+    if name.startswith("last_activity_"):
+        return f"Final stage: {name[14:]}"
+    if name.startswith("first_activity_"):
+        return f"Opened as: {name[15:]}"
+    if name.startswith("supplier_id_"):
+        return "Supplier risk profile"
+    if name.startswith("category_"):
+        return f"Category: {name[9:]}"
+    return name.replace("_", " ").title()
+
+
+def _top_risk_cases(cases):
+    if cases.empty:
+        raise ValueError("No process cases loaded yet")
+    evaluated = evaluate_sla(cases, load_sla_targets())
+    X, _ = build_features(evaluated)
+    bundle = load_model()
+    predictions = predict_sla_risk(X, bundle)
+
+    meta = evaluated[["case_id"]].copy()
+    if "supplier_id" in evaluated.columns:
+        meta["supplier_id"] = evaluated["supplier_id"].astype(str)
+    else:
+        meta["supplier_id"] = "—"
+    meta = meta.reset_index(drop=True)
+
+    result = pd.concat([meta, predictions.reset_index(drop=True)], axis=1)
+    high_risk = result[result["risk_level"] == "HIGH"].nlargest(8, "breach_probability")
+
+    if high_risk.empty:
+        return {"cases": []}
+
+    fi = bundle.get("feature_importances", {})
+    X_aligned = X.reindex(columns=bundle["columns"], fill_value=0).reset_index(drop=True)
+
+    output = []
+    for pos in high_risk.index:
+        row = high_risk.loc[pos]
+        top_reason = "High breach probability"
+        if fi and pos < len(X_aligned):
+            factors = explain_prediction(X_aligned.iloc[pos], fi, top_n=1)
+            if factors:
+                top_reason = _humanize_feature(factors[0]["feature"])
+        output.append({
+            "case_id": str(row["case_id"]),
+            "supplier_id": str(row.get("supplier_id", "—")),
+            "breach_probability": int(round(float(row["breach_probability"]) * 100)),
+            "risk_level": str(row["risk_level"]),
+            "top_reason": top_reason,
+        })
+
+    return {"cases": output}
+
+
 def _sla_risk(cases):
     if cases.empty:
         raise ValueError("No process cases loaded yet")
@@ -144,6 +217,7 @@ def _compute_dashboard_data() -> dict:
         "suppliers": cases_section(_suppliers),
         "conformance": events_section(_conformance),
         "sla_risk": cases_section(_sla_risk),
+        "top_risk_cases": cases_section(_top_risk_cases),
     }
 
 

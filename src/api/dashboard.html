@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Northstar Manufacturing — Supply Chain Analytics</title>
+<title>Northstar Manufacturing — Procure-to-Pay Intelligence</title>
 <style>
   /* ── Theme variables ─────────────────────────────────────────────────────── */
   :root {
@@ -224,7 +224,7 @@
 
   /* ── Bottleneck bars ─────────────────────────────────────────────────────── */
   .bn-row { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; font-size: 0.81rem; }
-  .bn-label { min-width: 130px; max-width: 180px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.78rem; }
+  .bn-label { min-width: 140px; max-width: 220px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.78rem; cursor: default; }
   .bn-bar-wrap { flex: 1; background: var(--panel2); border-radius: 4px; height: 8px; overflow: hidden; }
   .bn-bar { height: 8px; background: var(--accent); border-radius: 4px; width: 0; transition: width 0.6s ease; }
   .bn-val { min-width: 46px; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
@@ -266,6 +266,34 @@
   .risk-bar.high { background: var(--bad);  }
   .risk-count { min-width: 44px; text-align: right; font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 
+  /* ── Orders needing attention ───────────────────────────────────────────── */
+  .attention-table th, .attention-table td { padding: 7px 10px; }
+  .attention-table td.prob { font-variant-numeric: tabular-nums; font-weight: 700; }
+  .attention-table td.reason { color: var(--muted); font-size: 0.79rem; }
+  .prob-bar-wrap { display: inline-block; width: 52px; height: 6px; background: var(--panel2); border-radius: 3px; vertical-align: middle; margin-left: 6px; overflow: hidden; }
+  .prob-bar-fill { height: 6px; border-radius: 3px; background: var(--bad); }
+
+  /* ── Breach mini bar (supplier table) ───────────────────────────────────── */
+  .breach-bar-wrap { display: inline-block; width: 48px; height: 5px; background: var(--panel2); border-radius: 3px; vertical-align: middle; margin-left: 5px; overflow: hidden; }
+  .breach-bar-fill { height: 5px; border-radius: 3px; }
+  .breach-bar-fill.good { background: var(--good); }
+  .breach-bar-fill.warn { background: var(--warn); }
+  .breach-bar-fill.bad  { background: var(--bad);  }
+
+  /* ── Recommended actions ─────────────────────────────────────────────────── */
+  .action-list { list-style: none; padding: 0; margin: 0; }
+  .action-list li { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 0.83rem; line-height: 1.45; }
+  .action-list li:last-child { border-bottom: none; }
+  .action-icon { font-size: 1rem; flex-shrink: 0; margin-top: 1px; }
+  .action-text strong { display: block; color: var(--text); }
+  .action-text span { color: var(--muted); font-size: 0.78rem; }
+
+  /* ── Sortable headers ────────────────────────────────────────────────────── */
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable:hover { color: var(--accent); }
+  th.sort-asc::after  { content: " ▲"; font-size: 0.65em; }
+  th.sort-desc::after { content: " ▼"; font-size: 0.65em; }
+
   /* ── Conformance ─────────────────────────────────────────────────────────── */
   .conf-rate { font-size: 2.2rem; font-weight: 700; line-height: 1; margin-bottom: 4px; }
   .conf-sub  { font-size: 0.8rem; color: var(--muted); margin-bottom: 14px; }
@@ -304,9 +332,9 @@
   <header>
     <div class="header-top">
       <div>
-        <h1>Supply Chain Analytics — Northstar Manufacturing</h1>
+        <h1>Procure-to-Pay Intelligence — Northstar Manufacturing</h1>
         <div class="subtitle">
-          Live procurement process intelligence &middot;
+          Live procurement process analytics · process mining, SLA risk, supplier performance &middot;
           data from <a href="/docs" target="_blank">operations-performance API</a>
         </div>
       </div>
@@ -328,8 +356,10 @@
       <p><strong>Cycle Time</strong> — how long it takes from purchase order creation to delivery. The industry benchmark for manufacturing procurement is 30–60 days. Northstar's average is highlighted.</p>
       <p><strong>SLA Breach Rate</strong> — the % of orders that exceeded their agreed delivery deadline. Above 15% is a serious operational problem.</p>
       <p><strong>Bottlenecks</strong> — which process stages cause the most delay, ranked by average hours spent there. The top stage explains most SLA breaches.</p>
-      <p><strong>SLA Risk</strong> — each order is scored LOW / MEDIUM / HIGH by an ML model trained on historical breach patterns.</p>
-      <p><strong>Supplier Performance</strong> — which suppliers are slowest and which breach SLA most often. A <span class="pill worst" style="position:relative;top:-1px">worst</span> badge marks the highest breach-rate supplier.</p>
+      <p><strong>SLA Risk</strong> — each order is scored LOW / MEDIUM / HIGH by a calibrated Random Forest model (ROC-AUC 0.986) trained on historical breach patterns. Risk score ≠ breach rate: the distribution shows predicted likelihood, not confirmed outcome.</p>
+      <p><strong>Orders Needing Attention</strong> — the top HIGH-risk orders ranked by predicted breach probability, with the single biggest contributing factor from the model's feature importance (lightweight per-row explanation).</p>
+      <p><strong>Supplier Performance</strong> — which suppliers are slowest and which breach SLA most often. Click any column header to re-sort. A <span class="pill worst" style="position:relative;top:-1px">worst</span> badge marks the highest breach-rate supplier.</p>
+      <p><strong>Recommended Actions</strong> — synthesised from the data above: the highest-impact interventions given current breach rate, top bottleneck, and worst-performing supplier.</p>
     </div>
   </div>
 
@@ -342,6 +372,23 @@
       <div class="skeleton tall"></div>
       <div class="skeleton short"></div>
       <div class="skeleton" style="width:80%"></div>
+    </div>
+  </div>
+
+  <!-- ── Orders Needing Attention ── -->
+  <div class="card" id="attention-card" hidden>
+    <h2>🚨 Orders Needing Attention <span class="badge">top HIGH-risk · ranked by breach probability</span></h2>
+    <div class="card-sublabel">Highest predicted breach probability. Click an order to see the full risk explanation via the API.</div>
+    <div class="table-wrap">
+      <table class="attention-table">
+        <thead><tr>
+          <th>Order</th>
+          <th>Supplier</th>
+          <th class="num">Breach Prob.</th>
+          <th>Top Risk Factor</th>
+        </tr></thead>
+        <tbody id="attention-body"></tbody>
+      </table>
     </div>
   </div>
 
@@ -366,7 +413,7 @@
   <!-- ── Suppliers + Conformance ── -->
   <div class="grid-2">
     <div class="card">
-      <h2>Supplier Performance <span class="badge">min 3 orders · ranked by cycle time</span></h2>
+      <h2>Supplier Performance <span class="badge">min 3 orders · click headers to sort</span></h2>
       <div class="card-sublabel">Breach rate colour: <span class="breach-good">green &lt;10%</span> · <span class="breach-warn">yellow 10–25%</span> · <span class="breach-bad">red &gt;25%</span></div>
       <input id="supplier-filter" class="supplier-filter" type="text" placeholder="Filter by supplier ID…" aria-label="Filter suppliers" />
       <div class="table-wrap" id="suppliers-body">
@@ -380,6 +427,12 @@
         <div class="skeleton tall"></div><div class="skeleton short"></div>
       </div>
     </div>
+  </div>
+
+  <!-- ── Recommended Actions ── -->
+  <div class="card" id="actions-card" hidden>
+    <h2>💡 Recommended Actions <span class="badge">derived from current data</span></h2>
+    <ul class="action-list" id="actions-list"></ul>
   </div>
 
   <!-- ── Pipeline Runs ── -->
@@ -479,18 +532,21 @@ function renderKpis(ov) {
   const benchmarkDays = 30;
   const isAboveBenchmark = (ov.mean_cycle_hours / 24) > benchmarkDays;
 
+  const TARGET_BREACH = 15;
+  const mult = (ov.mean_cycle_hours / 24 / benchmarkDays).toFixed(1);
   const breachCls = ov.breach_rate_pct > 20 ? 'bad' : ov.breach_rate_pct > 10 ? 'warn' : '';
   const breachCtxCls = ov.breach_rate_pct > 20 ? 'bad' : ov.breach_rate_pct > 10 ? 'warn' : 'good';
-  const breachCtx = ov.breach_rate_pct > 20 ? 'critical for manufacturing' :
-                    ov.breach_rate_pct > 10 ? 'concerning — above 10% threshold' :
-                    'healthy — below 10%';
+  const breachDelta = (ov.breach_rate_pct - TARGET_BREACH).toFixed(1);
+  const breachCtx = ov.breach_rate_pct > TARGET_BREACH
+    ? `↑ ${breachDelta}pp vs ${TARGET_BREACH}% target`
+    : `✓ ${Math.abs(breachDelta)}pp below ${TARGET_BREACH}% target`;
 
   const cards = [
     {
       label: 'Avg Cycle Time',
       value: fmt(ov.mean_cycle_hours) + 'h',
       valueCls: isAboveBenchmark ? 'warn' : '',
-      ctx: days + ' days — ' + (isAboveBenchmark ? 'above 30-day benchmark' : 'within 30-day benchmark'),
+      ctx: days + ' days · ' + mult + '× 30-day benchmark',
       ctxCls: isAboveBenchmark ? 'warn' : 'good',
     },
     {
@@ -504,7 +560,7 @@ function renderKpis(ov) {
       label: 'P90 Cycle Time',
       value: fmt(ov.p90_cycle_hours) + 'h',
       valueCls: '',
-      ctx: '90% of orders complete within ' + (ov.p90_cycle_hours / 24).toFixed(1) + ' days',
+      ctx: '90% of orders finish within ' + (ov.p90_cycle_hours / 24).toFixed(1) + ' days',
       ctxCls: '',
     },
     {
@@ -539,6 +595,15 @@ function renderKpis(ov) {
 }
 
 // ── Bottlenecks ───────────────────────────────────────────────────────────────
+function shortStageLabel(stage) {
+  const abbrev = s => s.length > 20 ? s.slice(0, 18).trimEnd() + '…' : s;
+  if (stage.includes(' -> ')) {
+    const [a, b] = stage.split(' -> ');
+    return abbrev(a) + ' → ' + abbrev(b);
+  }
+  return abbrev(stage);
+}
+
 function renderBottlenecks(data) {
   const el = document.getElementById('bottlenecks-body');
   if (!data.available || !data.stages || !data.stages.length) {
@@ -549,11 +614,10 @@ function renderBottlenecks(data) {
   const maxVal = Math.max(...top.map(s => s.avg_hours));
   el.innerHTML = top.map(s => `
     <div class="bn-row">
-      <div class="bn-label" title="${s.stage}">${s.stage}</div>
+      <div class="bn-label" title="${s.stage}">${shortStageLabel(s.stage)}</div>
       <div class="bn-bar-wrap"><div class="bn-bar" data-pct="${(s.avg_hours / maxVal * 100).toFixed(1)}"></div></div>
       <div class="bn-val">${fmt(s.avg_hours)}h</div>
     </div>`).join('');
-  // animate bars
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       el.querySelectorAll('.bn-bar').forEach(b => { b.style.width = b.dataset.pct + '%'; });
@@ -574,13 +638,16 @@ function renderRisk(data) {
     { label: 'MEDIUM', cls: 'med',  count: data.medium || 0 },
     { label: 'HIGH',   cls: 'high', count: data.high   || 0 },
   ];
-  el.innerHTML = rows.map(r => `
+  el.innerHTML = rows.map(r => {
+    const pct = (r.count / total * 100).toFixed(1);
+    return `
     <div class="risk-row">
       <div class="risk-label"><span class="pill ${r.cls}">${r.label}</span></div>
-      <div class="risk-bar-wrap"><div class="risk-bar ${r.cls}" data-pct="${(r.count / total * 100).toFixed(1)}"></div></div>
-      <div class="risk-count">${r.count.toLocaleString()}</div>
-    </div>`).join('') +
-    `<div style="color:var(--muted);font-size:0.75rem;margin-top:8px">${(data.total_scored ?? total).toLocaleString()} cases scored</div>`;
+      <div class="risk-bar-wrap"><div class="risk-bar ${r.cls}" data-pct="${pct}"></div></div>
+      <div class="risk-count">${r.count.toLocaleString()} <span style="color:var(--muted);font-size:0.73rem">${pct}%</span></div>
+    </div>`;
+  }).join('') +
+    `<div style="color:var(--muted);font-size:0.75rem;margin-top:10px;line-height:1.4">${(data.total_scored ?? total).toLocaleString()} cases scored · Risk = predicted breach probability, not confirmed outcome</div>`;
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       el.querySelectorAll('.risk-bar').forEach(b => { b.style.width = b.dataset.pct + '%'; });
@@ -590,6 +657,22 @@ function renderRisk(data) {
 
 // ── Supplier Performance ──────────────────────────────────────────────────────
 let _suppliersAll = [];
+let _supplierSort = { col: 'breach', dir: -1 };  // default: breach rate desc
+
+function _sortSuppliers(arr) {
+  const { col, dir } = _supplierSort;
+  return [...arr].sort((a, b) => {
+    let va = col === 'breach' ? (a.sla_breach_rate ?? -1)
+           : col === 'cycle'  ? (a.avg_cycle_time_hours ?? 0)
+           : col === 'orders' ? (a.order_count ?? 0)
+           : 0;
+    let vb = col === 'breach' ? (b.sla_breach_rate ?? -1)
+           : col === 'cycle'  ? (b.avg_cycle_time_hours ?? 0)
+           : col === 'orders' ? (b.order_count ?? 0)
+           : 0;
+    return dir * (va - vb);
+  });
+}
 
 function _renderSuppliersTable(suppliers) {
   const el = document.getElementById('suppliers-body');
@@ -597,26 +680,59 @@ function _renderSuppliersTable(suppliers) {
     el.innerHTML = empty('No suppliers match the filter.');
     return;
   }
-  const worstIdx = suppliers.reduce((wi, s, i, arr) => {
+  const sorted = _sortSuppliers(suppliers);
+  const maxBreach = Math.max(...sorted.map(s => s.sla_breach_rate ?? 0), 0.001);
+  const worstIdx = sorted.reduce((wi, s, i, arr) => {
     return (s.sla_breach_rate ?? 0) > (arr[wi].sla_breach_rate ?? 0) ? i : wi;
   }, 0);
+
+  function hdrCls(col) {
+    if (_supplierSort.col !== col) return 'sortable';
+    return 'sortable ' + (_supplierSort.dir === -1 ? 'sort-desc' : 'sort-asc');
+  }
+
   el.innerHTML = `
     <div class="table-wrap"><table>
-      <thead><tr><th>Supplier</th><th class="num">Orders</th><th class="num">Avg Cycle</th><th class="num">Breach Rate</th></tr></thead>
-      <tbody>${suppliers.map((s, i) => {
+      <thead><tr>
+        <th>Supplier</th>
+        <th class="num ${hdrCls('orders')}" data-sort="orders">Orders</th>
+        <th class="num ${hdrCls('cycle')}"  data-sort="cycle">Avg Cycle</th>
+        <th class="num ${hdrCls('breach')}" data-sort="breach">Breach Rate</th>
+      </tr></thead>
+      <tbody>${sorted.map((s, i) => {
         const bp = s.sla_breach_rate != null ? s.sla_breach_rate * 100 : null;
         const bpFmt = bp != null ? bp.toFixed(0) + '%' : '—';
         const bpCls = bp == null ? '' : bp > 25 ? 'breach-bad' : bp > 10 ? 'breach-warn' : 'breach-good';
+        const barCls = bp == null ? '' : bp > 25 ? 'bad' : bp > 10 ? 'warn' : 'good';
+        const barW = bp != null ? ((s.sla_breach_rate / maxBreach) * 100).toFixed(0) : 0;
         const worstBadge = i === worstIdx && bp != null ? '<span class="pill worst">worst</span>' : '';
+        const bar = bp != null
+          ? `<span class="breach-bar-wrap"><span class="breach-bar-fill ${barCls}" style="width:${barW}%"></span></span>`
+          : '';
         return `<tr>
           <td>${s.supplier_id}${worstBadge}</td>
           <td class="num">${s.order_count}</td>
           <td class="num">${fmt(s.avg_cycle_time_hours)}h</td>
-          <td class="num ${bpCls}">${bpFmt}</td>
+          <td class="num ${bpCls}">${bpFmt}${bar}</td>
         </tr>`;
       }).join('')}
       </tbody>
     </table></div>`;
+
+  // wire sort clicks
+  el.querySelectorAll('th[data-sort]').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.sort;
+      if (_supplierSort.col === col) {
+        _supplierSort.dir *= -1;
+      } else {
+        _supplierSort = { col, dir: -1 };
+      }
+      const q = document.getElementById('supplier-filter').value.trim().toLowerCase();
+      const toRender = q ? _suppliersAll.filter(s => String(s.supplier_id).toLowerCase().includes(q)) : _suppliersAll;
+      _renderSuppliersTable(toRender);
+    });
+  });
 }
 
 function renderSuppliers(data) {
@@ -653,6 +769,94 @@ function renderConformance(data) {
       <thead><tr><th>Deviation type</th><th class="num">Count</th></tr></thead>
       <tbody>${devs.map(([k, v]) => `<tr><td>${k}</td><td class="num">${v}</td></tr>`).join('')}</tbody>
     </table>` : ''}`;
+}
+
+// ── Orders Needing Attention ──────────────────────────────────────────────────
+function renderAttention(data) {
+  const card = document.getElementById('attention-card');
+  const tbody = document.getElementById('attention-body');
+  if (!data || !data.available || !data.cases || !data.cases.length) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  tbody.innerHTML = data.cases.map(c => {
+    const probW = Math.min(c.breach_probability, 100);
+    const bar = `<span class="prob-bar-wrap"><span class="prob-bar-fill" style="width:${probW}%"></span></span>`;
+    return `<tr>
+      <td><a href="/orders/${encodeURIComponent(c.case_id)}/risk?explain=true" target="_blank" style="color:var(--accent);text-decoration:none">${c.case_id}</a></td>
+      <td>${c.supplier_id}</td>
+      <td class="num prob"><span class="pill high">${c.breach_probability}%</span>${bar}</td>
+      <td class="reason">${c.top_reason}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Recommended Actions ───────────────────────────────────────────────────────
+function renderActions(data) {
+  const card = document.getElementById('actions-card');
+  const list = document.getElementById('actions-list');
+  const ov = data.executive_overview;
+  const bn = data.bottlenecks;
+  const sup = data.suppliers;
+  const risk = data.sla_risk;
+
+  if (!ov || !ov.available) { card.hidden = true; return; }
+
+  const actions = [];
+
+  // 1. SLA breach severity
+  if (ov.breach_rate_pct > 15) {
+    const delta = (ov.breach_rate_pct - 15).toFixed(1);
+    actions.push({
+      icon: '🔴',
+      strong: `Escalate SLA breach rate — ${fmt(ov.breach_rate_pct)}% (${delta}pp above 15% target)`,
+      detail: `${risk && risk.available ? risk.high.toLocaleString() + ' HIGH-risk orders are currently predicted to breach their deadlines.' : 'Review all open orders against SLA deadlines.'}`,
+    });
+  }
+
+  // 2. Worst supplier
+  if (sup && sup.available && sup.suppliers && sup.suppliers.length) {
+    const worst = sup.suppliers.reduce((a, b) => (b.sla_breach_rate ?? 0) > (a.sla_breach_rate ?? 0) ? b : a);
+    if (worst.sla_breach_rate != null && worst.sla_breach_rate > 0.25) {
+      actions.push({
+        icon: '🟠',
+        strong: `Investigate ${worst.supplier_id} — ${(worst.sla_breach_rate * 100).toFixed(0)}% breach rate`,
+        detail: `Highest-breach supplier across ${worst.order_count} orders. Avg cycle ${fmt(worst.avg_cycle_time_hours)}h — consider performance review or alternate sourcing.`,
+      });
+    }
+  }
+
+  // 3. Top bottleneck
+  if (bn && bn.available && bn.stages && bn.stages.length) {
+    const top = bn.stages[0];
+    actions.push({
+      icon: '🟠',
+      strong: `Review "${shortStageLabel(top.stage)}" stage — highest average delay`,
+      detail: `${fmt(top.avg_hours)}h average (${top.case_count?.toLocaleString() ?? '?'} cases). This single transition accounts for the largest share of total process delay.`,
+    });
+  }
+
+  // 4. Cycle time vs benchmark
+  if (ov.mean_cycle_hours / 24 > 30) {
+    const mult = (ov.mean_cycle_hours / 24 / 30).toFixed(1);
+    actions.push({
+      icon: '🟡',
+      strong: `Reduce average cycle time — currently ${mult}× the 30-day benchmark`,
+      detail: `Mean ${fmt(ov.mean_cycle_hours)}h (${(ov.mean_cycle_hours/24).toFixed(1)} days). Target: under 720h. Focus on the top bottleneck stage and high-rework suppliers first.`,
+    });
+  }
+
+  if (!actions.length) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  list.innerHTML = actions.map(a => `
+    <li>
+      <span class="action-icon">${a.icon}</span>
+      <div class="action-text"><strong>${a.strong}</strong><span>${a.detail}</span></div>
+    </li>`).join('');
 }
 
 // ── Pipeline Runs ─────────────────────────────────────────────────────────────
@@ -696,9 +900,11 @@ async function loadDashboard() {
     renderKpis(data.executive_overview);
     renderBottlenecks(data.bottlenecks);
     renderRisk(data.sla_risk);
+    renderAttention(data.top_risk_cases);
     renderSuppliers(data.suppliers);
     renderConformance(data.conformance);
     renderCallout(data.executive_overview, data.conformance);
+    renderActions(data);
     await renderRuns();
     const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     label.textContent = `Updated ${now}`;
