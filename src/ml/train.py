@@ -40,7 +40,7 @@ def train_models(
     # Logistic regression is deployed because it wins ROC-AUC on every run of this pipeline
     # (0.847 vs 0.802 for random forest), is interpretable via signed coefficients, and
     # produces predictions in microseconds vs. milliseconds for the ensemble alternatives.
-    baseline = LogisticRegression(max_iter=1000, class_weight="balanced")
+    baseline = LogisticRegression(max_iter=3000, class_weight="balanced")
     baseline.fit(X_train, y_train)
     results["logistic_regression"] = _evaluate(baseline, X_test, y_test)
     results["logistic_regression"]["model"] = baseline
@@ -128,7 +128,7 @@ def cross_validate_time_series(
     y_ordered = y.loc[ordered.index]
 
     model_factories = {
-        "logistic_regression": lambda: LogisticRegression(max_iter=1000, class_weight="balanced"),
+        "logistic_regression": lambda: LogisticRegression(max_iter=3000, class_weight="balanced"),
         "random_forest": lambda: RandomForestClassifier(
             n_estimators=200, max_depth=8, class_weight="balanced", random_state=random_state
         ),
