@@ -47,6 +47,17 @@ Baseline (always predict 97% breach rate): Brier = 0.0291. Brier Skill Score > 0
 
 **Why this matters operationally:** ROC-AUC of 0.986 means the model ranks cases correctly. Brier score measures whether `breach_probability: 0.73` actually means ~73% of similar cases breach — a calibrated score is a decision input, not just a ranking. An operations team setting intervention thresholds needs calibrated probabilities to reason about cost vs. benefit; a poorly calibrated model produces misleading risk scores even at high AUC.
 
+**Cost-sensitive threshold analysis** (`scripts/cost_threshold_analysis.py`) — sweeps the decision threshold against three FN/FP cost ratios, making the operational deployment recommendation explicit rather than defaulting to sklearn's t=0.5:
+
+| Threshold | Precision | Recall | FP | FN | 10:1 cost |
+|---|---|---|---|---|---|
+| 0.10 | 98.3% | 100.0% | 10 | 0 | 10 |
+| **0.35** | **98.6%** | **100.0%** | **8** | **0** | **8** ← recommended |
+| 0.65 | 98.6% | 99.8% | 8 | 1 | 18 |
+| 0.90 | 98.6% | 99.8% | 8 | 1 | 28 |
+
+At t=0.35 (optimal for 5:1, 10:1, and 20:1 cost ratios): 100% recall (zero missed breaches), 98.6% precision, 8 false alarms on 590 flagged cases. The calibrated probability output makes this threshold interpretable: `P(breach | score ≥ 0.35) ≈ 35%` of flagged cases breach — a probability, not an arbitrary rank cutoff. The recommended operational instruction is "flag every case the model scores ≥ 0.35" rather than "flag the top-k ranked cases."
+
 Top features by importance (random forest): `unique_activity_count` (0.161), `event_count`
 (0.122), `last_activity_Clear Invoice` (0.119), `supplier_historical_median_cycle_time` (0.095),
 `variant_frequency` (0.089) — consistent with the ablation study's finding that the process family
