@@ -1,22 +1,143 @@
+"""
+Per-prediction explainability for the SLA breach predictor.
+
+Two strategies, both available:
+
+  explain_shap()       — real SHAP TreeExplainer on the underlying Random Forest.
+                         Gives signed, per-instance contributions: positive = pushed
+                         breach probability UP, negative = pushed it DOWN. Sorted by
+                         absolute magnitude so the most influential features come first.
+                         This is the right tool; use it.
+
+  explain_prediction() — legacy approximation kept for backward compatibility.
+                         Uses global feature importance filtered to active features.
+                         Not SHAP — see the note in the function docstring. Prefer
+                         explain_shap() for all new code.
+"""
+import numpy as np
 import pandas as pd
+
+
+def explain_shap(
+    feature_row: pd.Series,
+    model_bundle: dict,
+    top_n: int = 5,
+) -> list[dict]:
+    """SHAP TreeExplainer explanation for one prediction row.
+
+    Extracts the base RandomForest from the CalibratedClassifierCV wrapper,
+    runs TreeExplainer on it, and returns the top_n features ranked by absolute
+    SHAP value for the breach class (class 1).
+
+    Returns:
+        List of dicts with keys:
+          feature   — readable feature name
+          shap      — signed SHAP value (positive = pushes breach probability up)
+          value     — actual feature value for this case
+          direction — "↑ risk" or "↓ risk"
+    """
+    try:
+        import shap
+    except ImportError:
+        return explain_prediction(feature_row, model_bundle.get("feature_importances", {}), top_n)
+
+    calibrated = model_bundle["model"]
+    columns = model_bundle["columns"]
+
+    try:
+        base_rf = calibrated.calibrated_classifiers_[0].estimator
+    except (AttributeError, IndexError):
+        return explain_prediction(feature_row, model_bundle.get("feature_importances", {}), top_n)
+
+    X = feature_row.reindex(index=columns, fill_value=0).to_frame().T
+    explainer = shap.TreeExplainer(base_rf, feature_perturbation="interventional")
+
+    sv = explainer.shap_values(X)
+    # Handle both SHAP <0.46 (list) and >=0.46 (Explanation / ndarray)
+    if isinstance(sv, list):
+        shap_breach = np.asarray(sv[1])[0]
+    elif hasattr(sv, "values"):
+        arr = np.asarray(sv.values)
+        shap_breach = arr[0, :, 1] if arr.ndim == 3 else arr[0]
+    else:
+        shap_breach = np.asarray(sv)[0]
+
+    top_idx = np.argsort(np.abs(shap_breach))[::-1][:top_n]
+    return [
+        {
+            "feature": columns[i],
+            "shap": round(float(shap_breach[i]), 4),
+            "value": round(float(X.iloc[0, i]), 4),
+            "direction": "↑ risk" if shap_breach[i] > 0 else "↓ risk",
+        }
+        for i in top_idx
+    ]
+
+
+def explain_shap_batch(
+    features: pd.DataFrame,
+    model_bundle: dict,
+    top_n: int = 5,
+) -> list[list[dict]]:
+    """Batch SHAP explanation — runs one TreeExplainer call for all rows (fast)."""
+    try:
+        import shap
+    except ImportError:
+        fi = model_bundle.get("feature_importances", {})
+        return [explain_prediction(features.iloc[i], fi, top_n) for i in range(len(features))]
+
+    calibrated = model_bundle["model"]
+    columns = model_bundle["columns"]
+
+    try:
+        base_rf = calibrated.calibrated_classifiers_[0].estimator
+    except (AttributeError, IndexError):
+        fi = model_bundle.get("feature_importances", {})
+        return [explain_prediction(features.iloc[i], fi, top_n) for i in range(len(features))]
+
+    X = features.reindex(columns=columns, fill_value=0)
+    explainer = shap.TreeExplainer(base_rf, feature_perturbation="interventional")
+    sv = explainer.shap_values(X)
+
+    if isinstance(sv, list):
+        shap_all = np.asarray(sv[1])
+    elif hasattr(sv, "values"):
+        arr = np.asarray(sv.values)
+        shap_all = arr[:, :, 1] if arr.ndim == 3 else arr
+    else:
+        shap_all = np.asarray(sv)
+
+    results = []
+    for i in range(len(features)):
+        row_shap = shap_all[i]
+        top_idx = np.argsort(np.abs(row_shap))[::-1][:top_n]
+        results.append([
+            {
+                "feature": columns[j],
+                "shap": round(float(row_shap[j]), 4),
+                "value": round(float(X.iloc[i, j]), 4),
+                "direction": "↑ risk" if row_shap[j] > 0 else "↓ risk",
+            }
+            for j in top_idx
+        ])
+    return results
 
 
 def explain_prediction(
     feature_row: pd.Series, feature_importances: dict, top_n: int = 5
 ) -> list[dict]:
-    """Per-prediction explanation: which features this specific case has that are
-    among the model's most important, and whether that feature is 'active' for this
-    case (non-zero / true). This is not SHAP -- it's a lightweight, honest approximation:
-    global feature importance filtered to what's actually present in this row.
-    Good enough for a fresher project; note the limitation rather than overclaiming it."""
-    active_features = feature_row[feature_row != 0].index.tolist()
+    """Legacy approximation — kept for backward compatibility.
 
+    Uses global feature importance filtered to active (non-zero) features.
+    This is NOT SHAP: it doesn't account for feature interactions, signs, or
+    per-instance magnitudes. Use explain_shap() for all new code.
+    """
+    active_features = feature_row[feature_row != 0].index.tolist()
     ranked = sorted(
         ((f, imp) for f, imp in feature_importances.items() if f in active_features),
         key=lambda kv: kv[1],
         reverse=True,
     )
-
     return [
         {"feature": f, "importance": round(imp, 4), "value": feature_row[f]}
         for f, imp in ranked[:top_n]
@@ -26,38 +147,8 @@ def explain_prediction(
 def explain_batch(
     features: pd.DataFrame, feature_importances: dict, top_n: int = 5
 ) -> pd.DataFrame:
+    """Legacy batch approximation — see explain_prediction() note."""
     explanations = features.apply(
         lambda row: explain_prediction(row, feature_importances, top_n), axis=1
     )
     return pd.DataFrame({"top_factors": explanations})
-
-
-if __name__ == "__main__":
-    import os
-    from dotenv import load_dotenv
-    from src.ingestion.load_event_log import load_event_log
-    from src.cleaning.clean_events import clean_events
-    from src.transformation.build_process_cases import build_process_cases
-    from src.analytics.sla_analysis import load_sla_targets, evaluate_sla
-    from src.ml.features import build_features
-    from src.ml.predict import load_model, predict_sla_risk
-
-    load_dotenv()
-    raw = load_event_log(os.environ["RAW_EVENT_LOG_PATH"])
-    cleaned, _ = clean_events(raw)
-    cases = build_process_cases(cleaned)
-    evaluated = evaluate_sla(cases, load_sla_targets())
-
-    X, _ = build_features(evaluated)
-    bundle = load_model()
-    predictions = predict_sla_risk(X, bundle)
-
-    if not bundle.get("feature_importances"):
-        print("No feature_importances in this model bundle (only random_forest has them). "
-              "Retrain to pick up a random_forest model if you need explanations.")
-    else:
-        explanations = explain_batch(X, bundle["feature_importances"])
-        output = pd.concat(
-            [evaluated[["case_id"]].reset_index(drop=True), predictions, explanations], axis=1
-        )
-        print(output.sort_values("breach_probability", ascending=False).head(5).to_string(index=False))

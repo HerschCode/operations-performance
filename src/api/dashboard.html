@@ -357,7 +357,7 @@
       <p><strong>SLA Breach Rate</strong> — the % of orders that exceeded their agreed delivery deadline. Above 15% is a serious operational problem.</p>
       <p><strong>Bottlenecks</strong> — which process stages cause the most delay, ranked by average hours spent there. The top stage explains most SLA breaches.</p>
       <p><strong>SLA Risk</strong> — each order is scored LOW / MEDIUM / HIGH by a calibrated Random Forest model (ROC-AUC 0.986) trained on historical breach patterns. Risk score ≠ breach rate: the distribution shows predicted likelihood, not confirmed outcome.</p>
-      <p><strong>Orders Needing Attention</strong> — the top HIGH-risk orders ranked by predicted breach probability, with the single biggest contributing factor from the model's feature importance (lightweight per-row explanation).</p>
+      <p><strong>Orders Needing Attention</strong> — the top HIGH-risk orders ranked by predicted breach probability. Each order shows SHAP feature attributions: signed, per-instance contributions from the model (positive = pushed breach probability up, negative = pushed it down), ranked by magnitude.</p>
       <p><strong>Supplier Performance</strong> — which suppliers are slowest and which breach SLA most often. Click any column header to re-sort. A <span class="pill worst" style="position:relative;top:-1px">worst</span> badge marks the highest breach-rate supplier.</p>
       <p><strong>Recommended Actions</strong> — synthesised from the data above: the highest-impact interventions given current breach rate, top bottleneck, and worst-performing supplier.</p>
     </div>
@@ -783,11 +783,25 @@ function renderAttention(data) {
   tbody.innerHTML = data.cases.map(c => {
     const probW = Math.min(c.breach_probability, 100);
     const bar = `<span class="prob-bar-wrap"><span class="prob-bar-fill" style="width:${probW}%"></span></span>`;
+    const shapHtml = (c.shap_factors && c.shap_factors.length)
+      ? `<div style="margin-top:5px;font-size:0.74rem;line-height:1.6">` +
+        c.shap_factors.map(f => {
+          const mag = Math.abs(f.shap);
+          const barW = Math.min(Math.round(mag * 400), 60);
+          const col = f.shap > 0 ? '#c0392b' : '#27ae60';
+          return `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:8px">` +
+            `<span style="display:inline-block;width:${barW}px;height:3px;background:${col};border-radius:2px"></span>` +
+            `<span style="color:${col}">${f.direction}</span>` +
+            `<span style="color:var(--muted)">${f.label}</span>` +
+            `</span>`;
+        }).join('') +
+        `</div>`
+      : `<div class="reason">${c.top_reason}</div>`;
     return `<tr>
       <td><a href="/orders/${encodeURIComponent(c.case_id)}/risk?explain=true" target="_blank" style="color:var(--accent);text-decoration:none">${c.case_id}</a></td>
       <td>${c.supplier_id}</td>
       <td class="num prob"><span class="pill high">${c.breach_probability}%</span>${bar}</td>
-      <td class="reason">${c.top_reason}</td>
+      <td>${shapHtml}</td>
     </tr>`;
   }).join('');
 }

@@ -29,7 +29,7 @@ from src.analytics.supplier_analysis import supplier_scorecard
 from src.analytics.conformance import check_conformance, conformance_report
 from src.ml.predict import load_model, predict_sla_risk
 from src.ml.features import build_features
-from src.ml.explain import explain_prediction
+from src.ml.explain import explain_shap_batch
 
 router = APIRouter()
 
@@ -139,23 +139,35 @@ def _top_risk_cases(cases):
     if high_risk.empty:
         return {"cases": []}
 
-    fi = bundle.get("feature_importances", {})
     X_aligned = X.reindex(columns=bundle["columns"], fill_value=0).reset_index(drop=True)
+    high_risk_positions = list(high_risk.index)
+    X_high = X_aligned.iloc[high_risk_positions]
+
+    # Real SHAP values — signed per-instance contributions, not global importance
+    shap_explanations = explain_shap_batch(X_high, bundle, top_n=5)
 
     output = []
-    for pos in high_risk.index:
+    for idx, (pos, shap_factors) in enumerate(zip(high_risk_positions, shap_explanations)):
         row = high_risk.loc[pos]
         top_reason = "High breach probability"
-        if fi and pos < len(X_aligned):
-            factors = explain_prediction(X_aligned.iloc[pos], fi, top_n=1)
-            if factors:
-                top_reason = _humanize_feature(factors[0]["feature"])
+        shap_display = []
+        if shap_factors:
+            top_reason = _humanize_feature(shap_factors[0]["feature"])
+            shap_display = [
+                {
+                    "label": _humanize_feature(f["feature"]),
+                    "shap": f["shap"],
+                    "direction": f["direction"],
+                }
+                for f in shap_factors
+            ]
         output.append({
             "case_id": str(row["case_id"]),
             "supplier_id": str(row.get("supplier_id", "—")),
             "breach_probability": int(round(float(row["breach_probability"]) * 100)),
             "risk_level": str(row["risk_level"]),
             "top_reason": top_reason,
+            "shap_factors": shap_display,
         })
 
     return {"cases": output}
