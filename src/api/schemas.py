@@ -14,6 +14,14 @@ class CycleTimeResponse(BaseModel):
     case_count: int
 
 
+class CycleTimeSegmentRow(BaseModel):
+    segment: str | None
+    mean_hours: float
+    median_hours: float
+    p90_hours: float
+    case_count: int
+
+
 class BottleneckRow(BaseModel):
     stage: str
     avg_hours: float

@@ -7,6 +7,7 @@ from src.api.auth import require_api_key
 from src.api.schemas import (
     HealthResponse,
     CycleTimeResponse,
+    CycleTimeSegmentRow,
     BottleneckRow,
     SlaSummaryRow,
     SupplierScoreRow,
@@ -41,11 +42,26 @@ def health():
     return HealthResponse(status="ok", database_connected=check_connection())
 
 
-@router.get("/metrics/cycle-time", response_model=CycleTimeResponse)
-def cycle_time():
+@router.get("/metrics/cycle-time")
+def cycle_time(segment: str | None = Query(default=None, description="Segment by column, e.g. 'category'")):
     cases = load_cases()
     if cases.empty:
         raise HTTPException(status_code=404, detail="No process cases loaded yet -- run the pipeline first")
+    if segment:
+        if segment not in cases.columns:
+            raise HTTPException(status_code=400, detail=f"Unknown segment '{segment}'. Valid: {list(cases.columns)}")
+        grp = cases.groupby(segment)["cycle_time_hours"]
+        rows = [
+            CycleTimeSegmentRow(
+                segment=str(cat) if cat is not None else None,
+                mean_hours=round(float(s.mean()), 2),
+                median_hours=round(float(s.median()), 2),
+                p90_hours=round(float(s.quantile(0.9)), 2),
+                case_count=int(len(s)),
+            )
+            for cat, s in grp
+        ]
+        return sorted(rows, key=lambda r: r.mean_hours, reverse=True)
     return cycle_time_percentiles(cases)
 
 
@@ -162,7 +178,13 @@ def pipeline_runs(limit: int = Query(default=20, ge=1, le=200)):
     """
     df = pd.read_sql(query, engine, params={"limit": limit})
     df["started_at"] = df["started_at"].astype(str)
-    df["finished_at"] = df["finished_at"].astype(str).replace("NaT", None)
+    df["finished_at"] = df["finished_at"].astype(str)
+    df["finished_at"] = df["finished_at"].where(df["finished_at"] != "NaT", other=None)
+    # Failed runs leave count columns as float NaN. to_dict() preserves NaN as Python
+    # float nan, which Pydantic v2 rejects for int | None -- it only accepts finite
+    # numbers or actual None. Cast to object first so None stays None through to_dict.
+    for col in ("raw_row_count", "cleaned_row_count", "case_count"):
+        df[col] = df[col].astype(object).where(pd.notna(df[col]), other=None)
     return df.to_dict(orient="records")
 
 
