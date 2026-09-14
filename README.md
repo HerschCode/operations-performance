@@ -132,7 +132,7 @@ code.
 Full breakdown in [`docs/data-contract.md`](docs/data-contract.md).
 
 ## Stack
-Python · Pandas · SQL · PostgreSQL · scikit-learn · MLflow · SHAP · FastAPI · Docker · BigQuery · GCP
+Python · Pandas · SQL · PostgreSQL · scikit-learn · MLflow · SHAP · FastAPI · Docker
 
 Containerised and stateless per-request (all state lives in Postgres, not in-process) — the same
 `Dockerfile` runs unmodified as a Kubernetes `Deployment` behind a `ClusterIP` `Service`. No k8s
