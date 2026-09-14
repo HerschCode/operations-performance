@@ -787,7 +787,7 @@ function renderAttention(data) {
     const bar = `<span class="prob-bar-wrap"><span class="prob-bar-fill" style="width:${probW}%"></span></span>`;
     const shapHtml = (c.shap_factors && c.shap_factors.length)
       ? `<div style="margin-top:5px;font-size:0.74rem;line-height:1.6">` +
-        c.shap_factors.map(f => {
+        c.shap_factors.slice(0, 3).map(f => {
           const mag = Math.abs(f.shap);
           const barW = Math.min(Math.round(mag * 400), 60);
           const col = f.shap > 0 ? '#c0392b' : '#27ae60';

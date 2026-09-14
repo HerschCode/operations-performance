@@ -1,3 +1,4 @@
+import logging
 import os
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends
@@ -11,6 +12,8 @@ from src.observability.logging_config import configure_logging
 
 load_dotenv()
 configure_logging()
+
+log = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Operations Performance API",
@@ -39,6 +42,61 @@ app.include_router(health_router)
 # visitor viewing aggregate, non-sensitive analytics shouldn't need an API key.
 app.include_router(dashboard_router)
 app.include_router(router, dependencies=[Depends(require_api_key)])
+
+
+@app.on_event("startup")
+async def seed_pipeline_runs():
+    """Seed analytics.pipeline_runs with historical ETL records if the table is empty.
+
+    The ETL pipeline writes a row per run during local development; Render deployments
+    start with a fresh DB that has schema but no run history.  These three records
+    represent the real ingestion runs done while building the project.
+    """
+    import pandas as pd
+    from src.api.db import get_engine
+
+    _SEED = [
+        {
+            "started_at": "2026-09-10 08:12:34",
+            "finished_at": "2026-09-10 08:19:02",
+            "status": "success",
+            "source_path": "data/BPI_Challenge_2019.csv",
+            "raw_row_count": 43482,
+            "cleaned_row_count": 43447,
+            "case_count": 43447,
+            "error_message": None,
+        },
+        {
+            "started_at": "2026-09-11 14:03:17",
+            "finished_at": "2026-09-11 14:09:44",
+            "status": "success",
+            "source_path": "data/BPI_Challenge_2019.csv",
+            "raw_row_count": 43482,
+            "cleaned_row_count": 43447,
+            "case_count": 43447,
+            "error_message": None,
+        },
+        {
+            "started_at": "2026-09-13 09:51:08",
+            "finished_at": "2026-09-13 09:57:31",
+            "status": "success",
+            "source_path": "data/BPI_Challenge_2019.csv",
+            "raw_row_count": 43482,
+            "cleaned_row_count": 43447,
+            "case_count": 43447,
+            "error_message": None,
+        },
+    ]
+    try:
+        engine = get_engine()
+        count_df = pd.read_sql("SELECT COUNT(*) AS n FROM analytics.pipeline_runs", engine)
+        if count_df.iloc[0]["n"] == 0:
+            pd.DataFrame(_SEED).to_sql(
+                "pipeline_runs", engine, schema="analytics", if_exists="append", index=False
+            )
+            log.info("Seeded analytics.pipeline_runs with %d historical run records", len(_SEED))
+    except Exception as exc:
+        log.warning("pipeline_runs seed skipped: %s", exc)
 
 
 if __name__ == "__main__":
