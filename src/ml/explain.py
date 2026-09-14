@@ -46,28 +46,33 @@ def explain_shap(
 
     try:
         base_rf = calibrated.calibrated_classifiers_[0].estimator
+        # sklearn >= 1.6 wraps the base estimator in FrozenEstimator; unwrap it
+        if hasattr(base_rf, "estimator"):
+            base_rf = base_rf.estimator
     except (AttributeError, IndexError):
         return explain_prediction(feature_row, model_bundle.get("feature_importances", {}), top_n)
 
     X = feature_row.reindex(index=columns, fill_value=0).to_frame().T
-    explainer = shap.TreeExplainer(base_rf, feature_perturbation="interventional")
+    explainer = shap.TreeExplainer(base_rf)
 
     sv = explainer.shap_values(X)
-    # Handle both SHAP <0.46 (list) and >=0.46 (Explanation / ndarray)
+    # Handle SHAP <0.46 (list), >=0.46 Explanation (.values), and plain 3D ndarray
     if isinstance(sv, list):
         shap_breach = np.asarray(sv[1])[0]
     elif hasattr(sv, "values"):
         arr = np.asarray(sv.values)
         shap_breach = arr[0, :, 1] if arr.ndim == 3 else arr[0]
     else:
-        shap_breach = np.asarray(sv)[0]
+        arr = np.asarray(sv)
+        shap_breach = arr[0, :, 1] if arr.ndim == 3 else arr[0]
 
     top_idx = np.argsort(np.abs(shap_breach))[::-1][:top_n]
+    columns_list = list(columns)
     return [
         {
-            "feature": columns[i],
+            "feature": columns_list[int(i)],
             "shap": round(float(shap_breach[i]), 4),
-            "value": round(float(X.iloc[0, i]), 4),
+            "value": round(float(X.iloc[0, int(i)]), 4),
             "direction": "↑ risk" if shap_breach[i] > 0 else "↓ risk",
         }
         for i in top_idx
@@ -91,12 +96,15 @@ def explain_shap_batch(
 
     try:
         base_rf = calibrated.calibrated_classifiers_[0].estimator
+        # sklearn >= 1.6 wraps the base estimator in FrozenEstimator; unwrap it
+        if hasattr(base_rf, "estimator"):
+            base_rf = base_rf.estimator
     except (AttributeError, IndexError):
         fi = model_bundle.get("feature_importances", {})
         return [explain_prediction(features.iloc[i], fi, top_n) for i in range(len(features))]
 
     X = features.reindex(columns=columns, fill_value=0)
-    explainer = shap.TreeExplainer(base_rf, feature_perturbation="interventional")
+    explainer = shap.TreeExplainer(base_rf)
     sv = explainer.shap_values(X)
 
     if isinstance(sv, list):
@@ -105,17 +113,19 @@ def explain_shap_batch(
         arr = np.asarray(sv.values)
         shap_all = arr[:, :, 1] if arr.ndim == 3 else arr
     else:
-        shap_all = np.asarray(sv)
+        arr = np.asarray(sv)
+        shap_all = arr[:, :, 1] if arr.ndim == 3 else arr
 
+    columns_list = list(columns)
     results = []
     for i in range(len(features)):
         row_shap = shap_all[i]
         top_idx = np.argsort(np.abs(row_shap))[::-1][:top_n]
         results.append([
             {
-                "feature": columns[j],
+                "feature": columns_list[int(j)],
                 "shap": round(float(row_shap[j]), 4),
-                "value": round(float(X.iloc[i, j]), 4),
+                "value": round(float(X.iloc[i, int(j)]), 4),
                 "direction": "↑ risk" if row_shap[j] > 0 else "↓ risk",
             }
             for j in top_idx
