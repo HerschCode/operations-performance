@@ -266,12 +266,17 @@
   .risk-bar.high { background: var(--bad);  }
   .risk-count { min-width: 44px; text-align: right; font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 
-  /* ── Orders needing attention ───────────────────────────────────────────── */
-  .attention-table th, .attention-table td { padding: 7px 10px; }
-  .attention-table td.prob { font-variant-numeric: tabular-nums; font-weight: 700; }
-  .attention-table td.reason { color: var(--muted); font-size: 0.79rem; }
-  .prob-bar-wrap { display: inline-block; width: 52px; height: 6px; background: var(--panel2); border-radius: 3px; vertical-align: middle; margin-left: 6px; overflow: hidden; }
-  .prob-bar-fill { height: 6px; border-radius: 3px; background: var(--bad); }
+  /* ── Orders needing attention (worklist) ────────────────────────────────── */
+  .order-worklist { display: flex; flex-direction: column; gap: 6px; }
+  .order-item { display: grid; grid-template-columns: 7rem 7rem 5rem 1fr; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; background: var(--panel2); border-left: 3px solid var(--bad); }
+  .order-item-id { color: var(--accent); text-decoration: none; font-weight: 600; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .order-item-id:hover { text-decoration: underline; }
+  .order-item-sup { color: var(--muted); font-size: 0.82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .order-item-prob { color: var(--bad); font-weight: 700; font-size: 0.9rem; font-variant-numeric: tabular-nums; text-align: right; }
+  .order-item-factors { display: flex; flex-wrap: wrap; gap: 4px; }
+  .factor-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 0.73rem; padding: 2px 7px; border-radius: 10px; white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+  .factor-chip.up   { background: rgba(192,57,43,0.12); color: #c0392b; }
+  .factor-chip.down { background: rgba(39,174,96,0.12);  color: #27ae60; }
 
   /* ── Breach mini bar (supplier table) ───────────────────────────────────── */
   .breach-bar-wrap { display: inline-block; width: 48px; height: 5px; background: var(--panel2); border-radius: 3px; vertical-align: middle; margin-left: 5px; overflow: hidden; }
@@ -304,6 +309,16 @@
   .run-meta { flex: 1; min-width: 0; }
   .run-id   { color: var(--muted); font-size: 0.72rem; }
   .run-time { color: var(--muted); font-size: 0.72rem; }
+
+  /* ── Model health ────────────────────────────────────────────────────────── */
+  .model-meta { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 12px; }
+  .model-meta-item { display: flex; flex-direction: column; gap: 2px; }
+  .model-meta-label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .model-meta-val { font-size: 0.9rem; font-weight: 600; }
+  .dist-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin: 8px 0 4px; }
+  .dist-bar-seg { transition: width 0.3s; min-width: 0; }
+  .dist-legend { display: flex; gap: 12px; font-size: 0.73rem; color: var(--muted); }
+  .dist-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 3px; vertical-align: middle; }
   .run-counts { font-size: 0.78rem; color: var(--muted); margin-top: 3px; }
 
   /* ── Empty / loading states ──────────────────────────────────────────────── */
@@ -381,17 +396,7 @@
   <div class="card" id="attention-card" hidden>
     <h2>🚨 Orders Needing Attention <span class="badge">top HIGH-risk · ranked by breach probability</span></h2>
     <div class="card-sublabel">Highest predicted breach probability. Click an order to see the full risk explanation via the API.</div>
-    <div class="table-wrap">
-      <table class="attention-table">
-        <thead><tr>
-          <th>Order</th>
-          <th>Supplier</th>
-          <th class="num">Breach Prob.</th>
-          <th>Top Risk Factor</th>
-        </tr></thead>
-        <tbody id="attention-body"></tbody>
-      </table>
-    </div>
+    <div class="order-worklist" id="attention-body"></div>
   </div>
 
   <!-- ── Bottlenecks + Risk Distribution ── -->
@@ -441,6 +446,14 @@
   <div class="card">
     <h2>Recent Pipeline Runs <span class="badge">last 5</span></h2>
     <div id="runs-body">
+      <div class="skeleton"></div><div class="skeleton short"></div>
+    </div>
+  </div>
+
+  <!-- ── Model Health ── -->
+  <div class="card" id="model-health-card" hidden>
+    <h2>Model Health <span class="badge">sla_risk_predictor · calibrated RF</span></h2>
+    <div id="model-health-body">
       <div class="skeleton"></div><div class="skeleton short"></div>
     </div>
   </div>
@@ -776,35 +789,28 @@ function renderConformance(data) {
 // ── Orders Needing Attention ──────────────────────────────────────────────────
 function renderAttention(data) {
   const card = document.getElementById('attention-card');
-  const tbody = document.getElementById('attention-body');
+  const list = document.getElementById('attention-body');
   if (!data || !data.available || !data.cases || !data.cases.length) {
     card.hidden = true;
     return;
   }
   card.hidden = false;
-  tbody.innerHTML = data.cases.map(c => {
-    const probW = Math.min(c.breach_probability, 100);
-    const bar = `<span class="prob-bar-wrap"><span class="prob-bar-fill" style="width:${probW}%"></span></span>`;
-    const shapHtml = (c.shap_factors && c.shap_factors.length)
-      ? `<div style="margin-top:5px;font-size:0.74rem;line-height:1.6">` +
-        c.shap_factors.slice(0, 3).map(f => {
-          const mag = Math.abs(f.shap);
-          const barW = Math.min(Math.round(mag * 400), 60);
-          const col = f.shap > 0 ? '#c0392b' : '#27ae60';
-          return `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:8px">` +
-            `<span style="display:inline-block;width:${barW}px;height:3px;background:${col};border-radius:2px"></span>` +
-            `<span style="color:${col}">${f.direction}</span>` +
-            `<span style="color:var(--muted)">${f.label}</span>` +
-            `</span>`;
-        }).join('') +
-        `</div>`
-      : `<div class="reason">${c.top_reason}</div>`;
-    return `<tr>
-      <td><a href="/orders/${encodeURIComponent(c.case_id)}/risk?explain=true" target="_blank" style="color:var(--accent);text-decoration:none">${c.case_id}</a></td>
-      <td>${c.supplier_id}</td>
-      <td class="num prob"><span class="pill high">${c.breach_probability}%</span>${bar}</td>
-      <td>${shapHtml}</td>
-    </tr>`;
+  list.innerHTML = data.cases.map(c => {
+    const orderId = c.case_id.includes('_') ? c.case_id.split('_').pop() : c.case_id.slice(-8);
+    const suppId = c.supplier_id && c.supplier_id.startsWith('vendorID_') ? '#' + c.supplier_id.slice(9) : (c.supplier_id || '—');
+    const probFmt = c.breach_probability >= 99.5 ? '>99%' : parseFloat(c.breach_probability).toFixed(1) + '%';
+    const chips = (c.shap_factors || []).slice(0, 2).map(f => {
+      const cls = f.shap > 0 ? 'up' : 'down';
+      const arrow = f.shap > 0 ? '↑' : '↓';
+      const label = f.label.length > 28 ? f.label.slice(0, 25) + '…' : f.label;
+      return `<span class="factor-chip ${cls}">${arrow} ${label}</span>`;
+    }).join('');
+    return `<div class="order-item">
+      <a href="/orders/${encodeURIComponent(c.case_id)}/risk?explain=true" target="_blank" class="order-item-id" title="${c.case_id}">${orderId}</a>
+      <span class="order-item-sup">${suppId}</span>
+      <span class="order-item-prob">${probFmt}</span>
+      <div class="order-item-factors">${chips}</div>
+    </div>`;
   }).join('');
 }
 
@@ -903,6 +909,48 @@ async function renderRuns() {
   }
 }
 
+// ── Model Health ─────────────────────────────────────────────────────────────
+async function renderModelHealth() {
+  const card = document.getElementById('model-health-card');
+  const el = document.getElementById('model-health-body');
+  try {
+    const res = await fetch('/health/model');
+    if (!res.ok) { card.hidden = true; return; }
+    const d = await res.json();
+    const trainedDate = d.trained_at ? d.trained_at.slice(0, 10) : '—';
+    const stale = d.staleness_days != null ? d.staleness_days : '?';
+    const retrainBadge = d.retrain_recommended
+      ? `<span class="pill fail" style="margin-left:6px;font-size:0.68rem;vertical-align:middle">retrain due</span>` : '';
+    const dist = d.prediction_distribution || {};
+    const total = (dist.LOW || 0) + (dist.MEDIUM || 0) + (dist.HIGH || 0);
+    const pct = v => total ? Math.round(v / total * 100) : 0;
+    const distSection = total ? `
+      <div class="card-sublabel" style="margin-bottom:4px">Prediction distribution · ${total.toLocaleString()} scored cases</div>
+      <div class="dist-bar">
+        <div class="dist-bar-seg" style="width:${pct(dist.LOW)}%;background:var(--good)"></div>
+        <div class="dist-bar-seg" style="width:${pct(dist.MEDIUM)}%;background:var(--warn)"></div>
+        <div class="dist-bar-seg" style="width:${pct(dist.HIGH)}%;background:var(--bad)"></div>
+      </div>
+      <div class="dist-legend">
+        <span><span class="dist-dot" style="background:var(--good)"></span>LOW ${dist.LOW.toLocaleString()}</span>
+        <span><span class="dist-dot" style="background:var(--warn)"></span>MED ${dist.MEDIUM.toLocaleString()}</span>
+        <span><span class="dist-dot" style="background:var(--bad)"></span>HIGH ${dist.HIGH.toLocaleString()}</span>
+      </div>` : `<div class="card-sublabel">No predictions recorded yet — run a batch prediction first.</div>`;
+    el.innerHTML = `
+      <div class="model-meta">
+        <div class="model-meta-item"><span class="model-meta-label">Model</span><span class="model-meta-val">${d.model_name || '—'}</span></div>
+        <div class="model-meta-item"><span class="model-meta-label">ROC-AUC</span><span class="model-meta-val" style="color:var(--good)">${d.roc_auc != null ? d.roc_auc.toFixed(3) : '—'}</span></div>
+        <div class="model-meta-item"><span class="model-meta-label">Trained</span><span class="model-meta-val">${trainedDate}</span></div>
+        <div class="model-meta-item"><span class="model-meta-label">Age</span><span class="model-meta-val">${stale}d${retrainBadge}</span></div>
+        <div class="model-meta-item"><span class="model-meta-label">Train rows</span><span class="model-meta-val">${d.train_row_count != null ? d.train_row_count.toLocaleString() : '—'}</span></div>
+      </div>
+      ${distSection}`;
+    card.hidden = false;
+  } catch (_) {
+    card.hidden = true;
+  }
+}
+
 // ── Main load / refresh loop ──────────────────────────────────────────────────
 let refreshTimer;
 
@@ -922,6 +970,7 @@ async function loadDashboard() {
     renderCallout(data.executive_overview, data.conformance);
     renderActions(data);
     await renderRuns();
+    await renderModelHealth();
     const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     label.textContent = `Updated ${now}`;
   } catch (err) {

@@ -42,6 +42,53 @@ def health():
     return HealthResponse(status="ok", database_connected=check_connection())
 
 
+@health_router.get("/health/model")
+def model_health():
+    """Unauthenticated model health endpoint — returns model version, staleness,
+    prediction distribution, and a retrain recommendation flag. Used by the
+    dashboard widget and external monitoring without requiring an API key."""
+    import json
+    from pathlib import Path
+    from datetime import datetime, timezone
+
+    meta_path = Path("models/sla_risk_model.meta.json")
+    if not meta_path.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="No trained model found — run src/ml/train.py first",
+        )
+
+    meta = json.loads(meta_path.read_text())
+    trained_at = datetime.fromisoformat(meta["trained_at"])
+    now = datetime.now(timezone.utc)
+    staleness_days = (now - trained_at).days
+
+    dist = {"LOW": 0, "MEDIUM": 0, "HIGH": 0}
+    try:
+        engine = get_engine()
+        df = pd.read_sql(
+            "SELECT risk_level, COUNT(*) AS n FROM analytics.sla_predictions GROUP BY risk_level",
+            engine,
+        )
+        for _, row in df.iterrows():
+            lvl = str(row["risk_level"]).upper()
+            if lvl in dist:
+                dist[lvl] = int(row["n"])
+    except Exception:
+        pass
+
+    return {
+        "status": "ok",
+        "model_name": meta.get("model_name"),
+        "roc_auc": meta.get("roc_auc"),
+        "trained_at": meta.get("trained_at"),
+        "staleness_days": staleness_days,
+        "train_row_count": meta.get("train_row_count"),
+        "prediction_distribution": dist,
+        "retrain_recommended": staleness_days > 30,
+    }
+
+
 @router.get("/metrics/cycle-time")
 def cycle_time(segment: str | None = Query(default=None, description="Segment by column, e.g. 'category'")):
     cases = load_cases()

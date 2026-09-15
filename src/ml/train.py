@@ -297,4 +297,46 @@ if __name__ == "__main__":
     cv = cross_validate_time_series(X, y, evaluated, model_name="random_forest")
     print(f"  {cv}")
 
-    save_best_model(results)
+    best_name = save_best_model(results)
+
+    # MLflow model registry — non-fatal, skipped gracefully if mlflow is not
+    # installed or no tracking server is configured (MLFLOW_TRACKING_URI unset
+    # defaults to a local ./mlruns directory, which still gives a local audit trail).
+    try:
+        import mlflow
+        import mlflow.sklearn
+
+        mlflow.set_experiment("sla_risk_predictor")
+        best = results[best_name]
+        with mlflow.start_run(run_name=f"train_{best_name}"):
+            mlflow.log_params({
+                "model_type": best_name,
+                "train_rows": results["_split"]["train_size"],
+                "test_rows": results["_split"]["test_size"],
+            })
+            mlflow.log_metrics({
+                "roc_auc": round(best["roc_auc"], 4),
+                "precision": round(best["precision"], 4),
+                "recall": round(best["recall"], 4),
+                "f1": round(best["f1"], 4),
+                "brier_score": round(best.get("brier_score", 0), 4),
+            })
+            cal_model = best.get("calibrated_model", best["model"])
+            mlflow.sklearn.log_model(
+                cal_model,
+                artifact_path="model",
+                registered_model_name="sla_risk_predictor",
+            )
+            client = mlflow.tracking.MlflowClient()
+            versions = client.search_model_versions("name='sla_risk_predictor'")
+            if versions:
+                latest = max(versions, key=lambda v: int(v.version))
+                client.transition_model_version_stage(
+                    name="sla_risk_predictor",
+                    version=latest.version,
+                    stage="Staging",
+                    archive_existing_versions=True,
+                )
+                print(f"Registered sla_risk_predictor v{latest.version} → Staging")
+    except Exception as mlflow_exc:
+        print(f"MLflow registry skipped: {mlflow_exc}")
