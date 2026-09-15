@@ -102,5 +102,22 @@ class DataQualityReport(BaseModel):
     checks: list[DataQualityCheck]
 
 
+class RiskBucketDrift(BaseModel):
+    bucket: str
+    baseline_pct: float
+    current_pct: float
+    delta_pct: float
+    status: str  # "stable" | "warn" | "alert"
+
+
+class PredictionDriftReport(BaseModel):
+    status: str  # "stable" | "warn" | "alert" | "no_baseline"
+    checked_at: str
+    total_current_predictions: int
+    baseline_source: str
+    buckets: list[RiskBucketDrift]
+    note: str | None = None
+
+
 class ErrorResponse(BaseModel):
     detail: str

@@ -154,6 +154,9 @@ def _evaluate(model, X_test, y_test) -> dict:
             "fraction_of_positives": frac_pos.tolist(),
             "mean_predicted_value": mean_pred.tolist(),
         },
+        # raw test-set probabilities — needed by save_best_model to compute the
+        # training-time risk distribution baseline for /observability/prediction-drift
+        "probs": probs.tolist(),
     }
 
 
@@ -247,6 +250,25 @@ def save_best_model(results: dict, out_path: str | Path = "models/sla_risk_model
     # Sidecar metadata, separate from the joblib bundle -- src/ml/retrain_trigger.py
     # reads this to decide whether retraining is due, without needing to unpickle
     # the (potentially large) model itself just to check a timestamp and a row count.
+    # Compute test-set risk distribution using the same probability thresholds
+    # predict.py uses at inference time (LOW < 0.3 <= MEDIUM < 0.6 <= HIGH), so
+    # /observability/prediction-drift can compare production distributions against
+    # this training-time baseline without having to re-run the model.
+    best_eval = best.get("calibrated_eval", best)
+    test_probs = best_eval.get("probs", [])
+    if len(test_probs):
+        import numpy as np
+        arr = np.array(test_probs)
+        train_risk_dist = {
+            "LOW": int((arr < 0.3).sum()),
+            "MEDIUM": int(((arr >= 0.3) & (arr < 0.6)).sum()),
+            "HIGH": int((arr >= 0.6).sum()),
+        }
+        train_breach_rate = round(float(arr.mean()), 4)
+    else:
+        train_risk_dist = None
+        train_breach_rate = None
+
     meta_path = out_path.with_suffix(".meta.json")
     meta_path.write_text(json.dumps({
         "model_name": best_name,
@@ -254,6 +276,8 @@ def save_best_model(results: dict, out_path: str | Path = "models/sla_risk_model
         "train_row_count": results["_split"]["train_size"],
         "test_row_count": results["_split"]["test_size"],
         "roc_auc": round(best["roc_auc"], 4),
+        "train_risk_distribution": train_risk_dist,
+        "train_breach_rate": train_breach_rate,
     }, indent=2))
 
     print(f"Saved best model ({best_name}, ROC-AUC={best['roc_auc']:.3f}) to {out_path}")

@@ -19,6 +19,8 @@ from src.api.schemas import (
     SlaRiskBucket,
     DataQualityCheck,
     DataQualityReport,
+    RiskBucketDrift,
+    PredictionDriftReport,
 )
 from src.analytics.cycle_time import cycle_time_percentiles, stage_summary
 from src.analytics.bottlenecks import identify_bottlenecks
@@ -349,6 +351,88 @@ def data_quality():
         overall=overall,
         checked_at=datetime.now(timezone.utc).isoformat(),
         checks=checks,
+    )
+
+
+@router.get("/observability/prediction-drift", response_model=PredictionDriftReport)
+def prediction_drift():
+    """Compare the current prediction risk-level distribution against the
+    training-time baseline stored in sla_risk_model.meta.json. A >10pp shift
+    in any bucket is a warn; >20pp is an alert — thresholds that flag genuine
+    distribution change without triggering on normal batch-to-batch variance.
+    Returns 'no_baseline' if the model was trained before this field was added."""
+    import json
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    checked_at = datetime.now(timezone.utc).isoformat()
+    meta_path = Path("models/sla_risk_model.meta.json")
+    if not meta_path.exists():
+        raise HTTPException(status_code=503, detail="No trained model found")
+
+    meta = json.loads(meta_path.read_text())
+    baseline = meta.get("train_risk_distribution")
+    if not baseline or not any(baseline.values()):
+        return PredictionDriftReport(
+            status="no_baseline",
+            checked_at=checked_at,
+            total_current_predictions=0,
+            baseline_source="none — retrain with current code to populate",
+            buckets=[],
+            note="train_risk_distribution not present in meta; run src/ml/train.py to regenerate",
+        )
+
+    baseline_total = sum(baseline.values())
+    baseline_pcts = {k: round(100 * v / baseline_total, 1) for k, v in baseline.items()}
+
+    engine = get_engine()
+    current_dist = {"LOW": 0, "MEDIUM": 0, "HIGH": 0}
+    try:
+        df = pd.read_sql(
+            "SELECT risk_level, COUNT(*) AS n FROM analytics.sla_predictions GROUP BY risk_level",
+            engine,
+        )
+        for _, row in df.iterrows():
+            lvl = str(row["risk_level"]).upper()
+            if lvl in current_dist:
+                current_dist[lvl] = int(row["n"])
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Could not read predictions: {exc}")
+
+    current_total = sum(current_dist.values())
+    if current_total == 0:
+        raise HTTPException(status_code=404, detail="No predictions found — run the pipeline first")
+
+    current_pcts = {k: round(100 * v / current_total, 1) for k, v in current_dist.items()}
+
+    buckets = []
+    worst = "stable"
+    for bucket in ["LOW", "MEDIUM", "HIGH"]:
+        delta = round(current_pcts[bucket] - baseline_pcts.get(bucket, 0.0), 1)
+        abs_delta = abs(delta)
+        if abs_delta >= 20:
+            status = "alert"
+            worst = "alert"
+        elif abs_delta >= 10:
+            status = "warn"
+            if worst != "alert":
+                worst = "warn"
+        else:
+            status = "stable"
+        buckets.append(RiskBucketDrift(
+            bucket=bucket,
+            baseline_pct=baseline_pcts.get(bucket, 0.0),
+            current_pct=current_pcts[bucket],
+            delta_pct=delta,
+            status=status,
+        ))
+
+    return PredictionDriftReport(
+        status=worst,
+        checked_at=checked_at,
+        total_current_predictions=current_total,
+        baseline_source=f"test-set predictions from training run at {meta.get('trained_at', 'unknown')}",
+        buckets=buckets,
     )
 
 
