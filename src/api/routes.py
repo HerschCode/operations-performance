@@ -239,7 +239,7 @@ def pipeline_runs(limit: int = Query(default=20, ge=1, le=200)):
     return df.to_dict(orient="records")
 
 
-@router.get("/observability/data-quality", response_model=DataQualityReport)
+@health_router.get("/observability/data-quality", response_model=DataQualityReport)
 def data_quality():
     """Live data quality report over the analytics schema. Runs a set of named
     checks — row counts, null rates, timestamp freshness, prediction coverage —
