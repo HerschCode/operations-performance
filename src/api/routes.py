@@ -17,6 +17,8 @@ from src.api.schemas import (
     ConformanceResponse,
     SlaRiskDistributionResponse,
     SlaRiskBucket,
+    DataQualityCheck,
+    DataQualityReport,
 )
 from src.analytics.cycle_time import cycle_time_percentiles, stage_summary
 from src.analytics.bottlenecks import identify_bottlenecks
@@ -233,6 +235,121 @@ def pipeline_runs(limit: int = Query(default=20, ge=1, le=200)):
     for col in ("raw_row_count", "cleaned_row_count", "case_count"):
         df[col] = df[col].astype(object).where(pd.notna(df[col]), other=None)
     return df.to_dict(orient="records")
+
+
+@router.get("/observability/data-quality", response_model=DataQualityReport)
+def data_quality():
+    """Live data quality report over the analytics schema. Runs a set of named
+    checks — row counts, null rates, timestamp freshness, prediction coverage —
+    and returns per-check pass/warn/fail results plus an overall rollup status.
+    Useful for pipeline health monitoring without needing direct DB access."""
+    from datetime import datetime, timezone, timedelta
+
+    engine = get_engine()
+    checks: list[DataQualityCheck] = []
+
+    def _check(name: str, query: str, *, warn_fn=None, fail_fn=None, fmt=str) -> DataQualityCheck:
+        try:
+            result = pd.read_sql(query, engine).iloc[0, 0]
+            value = fmt(result)
+            if fail_fn and fail_fn(result):
+                status = "fail"
+            elif warn_fn and warn_fn(result):
+                status = "warn"
+            else:
+                status = "pass"
+            return DataQualityCheck(name=name, status=status, value=value)
+        except Exception as exc:
+            return DataQualityCheck(name=name, status="fail", value="error", detail=str(exc)[:120])
+
+    # ── Events ──
+    checks.append(_check(
+        "events.row_count",
+        "SELECT COUNT(*) FROM analytics.process_events",
+        warn_fn=lambda n: n < 100,
+        fail_fn=lambda n: n == 0,
+        fmt=lambda n: f"{int(n):,} rows",
+    ))
+    checks.append(_check(
+        "events.null_case_id_rate",
+        "SELECT ROUND(100.0 * SUM(CASE WHEN case_id IS NULL THEN 1 ELSE 0 END) / COUNT(*), 2) FROM analytics.process_events",
+        warn_fn=lambda r: r > 0.5,
+        fail_fn=lambda r: r > 5.0,
+        fmt=lambda r: f"{float(r):.2f}%",
+    ))
+    checks.append(_check(
+        "events.null_activity_rate",
+        "SELECT ROUND(100.0 * SUM(CASE WHEN activity IS NULL THEN 1 ELSE 0 END) / COUNT(*), 2) FROM analytics.process_events",
+        warn_fn=lambda r: r > 0.1,
+        fail_fn=lambda r: r > 1.0,
+        fmt=lambda r: f"{float(r):.2f}%",
+    ))
+
+    # ── Timestamp freshness ──
+    try:
+        ts_df = pd.read_sql(
+            "SELECT MAX(timestamp) AS latest FROM analytics.process_events", engine
+        )
+        latest = pd.to_datetime(ts_df.iloc[0, 0])
+        if latest.tzinfo is None:
+            latest = latest.replace(tzinfo=timezone.utc)
+        age_days = (datetime.now(timezone.utc) - latest).days
+        if age_days > 365:
+            status = "warn"
+        else:
+            status = "pass"
+        checks.append(DataQualityCheck(
+            name="events.latest_event_age_days",
+            status=status,
+            value=f"{age_days} days",
+            detail="BPI 2019 corpus is static; age reflects corpus date, not pipeline failure" if age_days > 30 else None,
+        ))
+    except Exception as exc:
+        checks.append(DataQualityCheck(name="events.latest_event_age_days", status="fail", value="error", detail=str(exc)[:120]))
+
+    # ── Process cases ──
+    checks.append(_check(
+        "cases.row_count",
+        "SELECT COUNT(*) FROM analytics.process_cases",
+        warn_fn=lambda n: n < 10,
+        fail_fn=lambda n: n == 0,
+        fmt=lambda n: f"{int(n):,} cases",
+    ))
+    checks.append(_check(
+        "cases.avg_events_per_case",
+        "SELECT ROUND(AVG(c.n), 1) FROM (SELECT case_id, COUNT(*) AS n FROM analytics.process_events GROUP BY case_id) c",
+        warn_fn=lambda v: v < 2,
+        fail_fn=lambda v: v < 1,
+        fmt=lambda v: f"{float(v):.1f}",
+    ))
+
+    # ── SLA predictions ──
+    checks.append(_check(
+        "predictions.row_count",
+        "SELECT COUNT(*) FROM analytics.sla_predictions",
+        warn_fn=lambda n: n < 10,
+        fail_fn=lambda n: n == 0,
+        fmt=lambda n: f"{int(n):,} predictions",
+    ))
+    checks.append(_check(
+        "predictions.high_risk_rate",
+        "SELECT ROUND(100.0 * SUM(CASE WHEN risk_level = 'HIGH' THEN 1 ELSE 0 END) / COUNT(*), 1) FROM analytics.sla_predictions",
+        warn_fn=lambda r: r > 80,
+        fail_fn=lambda r: r > 95,
+        fmt=lambda r: f"{float(r):.1f}%",
+    ))
+
+    overall = "pass"
+    if any(c.status == "fail" for c in checks):
+        overall = "fail"
+    elif any(c.status == "warn" for c in checks):
+        overall = "warn"
+
+    return DataQualityReport(
+        overall=overall,
+        checked_at=datetime.now(timezone.utc).isoformat(),
+        checks=checks,
+    )
 
 
 @router.get("/metrics/conformance", response_model=ConformanceResponse)

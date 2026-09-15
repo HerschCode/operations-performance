@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from typing import Literal
 
 
 class HealthResponse(BaseModel):
@@ -86,6 +87,19 @@ class SlaRiskBucket(BaseModel):
 class SlaRiskDistributionResponse(BaseModel):
     total_cases_scored: int
     buckets: list[SlaRiskBucket]
+
+
+class DataQualityCheck(BaseModel):
+    name: str
+    status: str  # "pass" | "warn" | "fail"
+    value: str
+    detail: str | None = None
+
+
+class DataQualityReport(BaseModel):
+    overall: str  # "pass" | "warn" | "fail"
+    checked_at: str
+    checks: list[DataQualityCheck]
 
 
 class ErrorResponse(BaseModel):
