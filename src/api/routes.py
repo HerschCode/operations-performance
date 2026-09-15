@@ -354,7 +354,7 @@ def data_quality():
     )
 
 
-@router.get("/observability/prediction-drift", response_model=PredictionDriftReport)
+@health_router.get("/observability/prediction-drift", response_model=PredictionDriftReport)
 def prediction_drift():
     """Compare the current prediction risk-level distribution against the
     training-time baseline stored in sla_risk_model.meta.json. A >10pp shift

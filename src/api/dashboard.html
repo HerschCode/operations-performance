@@ -249,6 +249,7 @@
   .pill.ok   { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
   .pill.fail { background: color-mix(in srgb, var(--bad)  18%, transparent); color: var(--bad);  }
   .pill.run  { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .pill.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
   .pill.worst { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); margin-left: 6px; font-size: 0.63rem; }
 
   /* ── Breach rate cell coloring ───────────────────────────────────────────── */
@@ -914,9 +915,12 @@ async function renderModelHealth() {
   const card = document.getElementById('model-health-card');
   const el = document.getElementById('model-health-body');
   try {
-    const res = await fetch('/health/model');
-    if (!res.ok) { card.hidden = true; return; }
-    const d = await res.json();
+    const [modelRes, driftRes] = await Promise.all([
+      fetch('/health/model'),
+      fetch('/observability/prediction-drift').catch(() => null),
+    ]);
+    if (!modelRes.ok) { card.hidden = true; return; }
+    const d = await modelRes.json();
     const trainedDate = d.trained_at ? d.trained_at.slice(0, 10) : '—';
     const stale = d.staleness_days != null ? d.staleness_days : '?';
     const retrainBadge = d.retrain_recommended
@@ -936,6 +940,35 @@ async function renderModelHealth() {
         <span><span class="dist-dot" style="background:var(--warn)"></span>MED ${dist.MEDIUM.toLocaleString()}</span>
         <span><span class="dist-dot" style="background:var(--bad)"></span>HIGH ${dist.HIGH.toLocaleString()}</span>
       </div>` : `<div class="card-sublabel">No predictions recorded yet — run a batch prediction first.</div>`;
+
+    // Drift section — compares current risk distribution vs. training-time baseline
+    let driftSection = '';
+    if (driftRes && driftRes.ok) {
+      const dr = await driftRes.json();
+      if (dr.status === 'no_baseline') {
+        driftSection = `<div class="card-sublabel" style="margin-top:14px">Prediction drift · <em>no baseline yet — retrain to populate</em></div>`;
+      } else {
+        const driftColor = { stable: 'var(--good)', warn: 'var(--warn)', alert: 'var(--bad)' };
+        const driftPillCls = { stable: 'ok', warn: 'warn', alert: 'fail' };
+        const overallPill = `<span class="pill ${driftPillCls[dr.status] || 'ok'}" style="margin-left:6px;font-size:0.68rem;vertical-align:middle">${dr.status}</span>`;
+        const bucketRows = (dr.buckets || []).map(b => {
+          const sign = b.delta_pct > 0 ? '+' : '';
+          const col = driftColor[b.status] || 'var(--text)';
+          return `<div style="display:flex;gap:8px;align-items:center;font-size:0.78rem;padding:2px 0">
+            <span style="width:44px;font-weight:600">${b.bucket}</span>
+            <span style="color:var(--muted)">baseline ${b.baseline_pct}%</span>
+            <span>→ now ${b.current_pct}%</span>
+            <span style="color:${col};font-weight:600;margin-left:auto">${sign}${b.delta_pct}pp</span>
+          </div>`;
+        }).join('');
+        driftSection = `
+          <div class="card-sublabel" style="margin-top:14px;margin-bottom:6px">
+            Prediction drift · vs. training baseline${overallPill}
+          </div>
+          <div style="background:var(--panel2);border-radius:6px;padding:8px 10px">${bucketRows}</div>`;
+      }
+    }
+
     el.innerHTML = `
       <div class="model-meta">
         <div class="model-meta-item"><span class="model-meta-label">Model</span><span class="model-meta-val">${d.model_name || '—'}</span></div>
@@ -944,7 +977,8 @@ async function renderModelHealth() {
         <div class="model-meta-item"><span class="model-meta-label">Age</span><span class="model-meta-val">${stale}d${retrainBadge}</span></div>
         <div class="model-meta-item"><span class="model-meta-label">Train rows</span><span class="model-meta-val">${d.train_row_count != null ? d.train_row_count.toLocaleString() : '—'}</span></div>
       </div>
-      ${distSection}`;
+      ${distSection}
+      ${driftSection}`;
     card.hidden = false;
   } catch (_) {
     card.hidden = true;
