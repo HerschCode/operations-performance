@@ -459,6 +459,14 @@
     </div>
   </div>
 
+  <!-- ── Data Quality ── -->
+  <div class="card" id="data-quality-card" hidden>
+    <h2>Data Quality <span class="badge">pipeline checks</span></h2>
+    <div id="data-quality-body">
+      <div class="skeleton"></div><div class="skeleton short"></div>
+    </div>
+  </div>
+
   <!-- ── Footer ── -->
   <footer>
     <a href="https://operations-assistant.onrender.com" target="_blank">Ask the AI agent →</a>
@@ -985,6 +993,37 @@ async function renderModelHealth() {
   }
 }
 
+// ── Data Quality ─────────────────────────────────────────────────────────────
+async function renderDataQuality() {
+  const card = document.getElementById('data-quality-card');
+  const el = document.getElementById('data-quality-body');
+  try {
+    const res = await fetch('/observability/data-quality');
+    if (!res.ok) { card.hidden = true; return; }
+    const dq = await res.json();
+    const statusColor = { pass: 'var(--good)', warn: 'var(--warn)', fail: 'var(--bad)' };
+    const pillCls = { pass: 'ok', warn: 'warn', fail: 'fail' };
+    const icon = { pass: '✓', warn: '!', fail: '✗' };
+    const overallPill = `<span class="pill ${pillCls[dq.overall] || 'ok'}" style="margin-left:6px;font-size:0.68rem;vertical-align:middle">${dq.overall}</span>`;
+    const rows = dq.checks.map(c => `
+      <div style="display:flex;gap:8px;align-items:baseline;font-size:0.78rem;padding:3px 0;border-bottom:1px solid var(--border)">
+        <span style="flex:1;color:var(--text)">${c.name}</span>
+        <span style="color:var(--muted)">${c.value}</span>
+        <span style="width:28px;text-align:right;font-weight:700;color:${statusColor[c.status] || 'var(--text)'}">
+          ${icon[c.status] || c.status}
+        </span>
+      </div>`).join('');
+    el.innerHTML = `
+      <div class="card-sublabel" style="margin-bottom:8px">
+        ${dq.checks.length} checks · ${dq.checked_at.slice(0, 19).replace('T', ' ')} UTC${overallPill}
+      </div>
+      <div style="background:var(--panel2);border-radius:6px;padding:8px 10px">${rows}</div>`;
+    card.hidden = false;
+  } catch (_) {
+    card.hidden = true;
+  }
+}
+
 // ── Main load / refresh loop ──────────────────────────────────────────────────
 let refreshTimer;
 
@@ -1004,7 +1043,7 @@ async function loadDashboard() {
     renderCallout(data.executive_overview, data.conformance);
     renderActions(data);
     await renderRuns();
-    await renderModelHealth();
+    await Promise.all([renderModelHealth(), renderDataQuality()]);
     const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     label.textContent = `Updated ${now}`;
   } catch (err) {
