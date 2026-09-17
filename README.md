@@ -93,24 +93,39 @@ not a sequential chain. `bottlenecks.sql` answers *where* time gets lost (for a 
 a report); the ML model answers *will this specific case breach SLA* (for an automated risk
 score). They are deliberately separate.
 
-## Why Random Forest? (the answer changed, and that's the honest part)
+## Why Random Forest? (the answer changed twice, and both times are the honest part)
 
 `save_best_model` selects by ROC-AUC, deterministically, on every run — and which model wins is
-not a fixed property of this problem, it's a function of the feature set. On the original
-4-column baseline, logistic regression won (0.847 vs random forest's 0.802). After adding the
-process and supplier-history feature families (15 columns, 541 after one-hot encoding), **random
-forest wins decisively** (0.986 vs LR's 0.910) — LR's linear decision boundary and L2-penalized
-coefficients can't capture the non-linear interactions the process features introduce (e.g.
-`unique_activity_count` and `rework_count` combining differently depending on `category`) the way
-a tree ensemble can split on directly. Stated here rather than left as a stale claim: an earlier
-version of this README reported LR winning at 0.992 on this same full feature set — that number
-was stale, from before the deployed model was retrained on the current 15-feature pipeline, not a
-different real result. (Separately, `LogisticRegression`'s `max_iter` was raised from 1000 to 3000
-to fix a genuine convergence warning at 541 one-hot columns — reported because an unconverged
-model shouldn't be quoted as a real number, but confirmed *not* to be what flips the winner: RF
-wins at both 1000 and 3000 iterations.) The lesson kept here deliberately: "which model is best"
-is an empirical question this pipeline answers fresh on every run, not a conclusion baked into the
-code.
+not a fixed property of this problem, it's a function of the feature set *and*, it turns out,
+which time window you happen to test on. On the original 4-column baseline, logistic regression
+won (0.847 vs random forest's 0.802). After adding the process and supplier-history feature
+families (15 columns, 541 after one-hot encoding), the single held-out split showed **random
+forest ahead by a wide margin** (0.986 vs LR's 0.910) — the story this README told for a while.
+
+**That single-split comparison doesn't survive a proper test, and this project's own statistical
+significance pass is what found that.** Running a paired comparison across the same 5
+`TimeSeriesSplit` folds (`scripts/statistical_significance.py`) — matched folds, not independent
+samples, since both models see identical train/test windows per fold — shows **no significant
+difference** (paired t-test p=0.93, Wilcoxon p=1.00; RF wins 2 folds, LR wins 2, one is a near-tie).
+The single split that motivated "RF wins decisively" happened to land on a fold where RF does well;
+an earlier fold shows LR ahead by an even larger margin (0.991 vs 0.848). Full breakdown, including
+why both results are real and what reconciles them:
+[`docs/statistical-significance.md`](docs/statistical-significance.md).
+
+**What this changes:** the deployed model stays random forest — this is "statistically
+indistinguishable from logistic regression," not "logistic regression is better" — but the
+*reason* is now honest: RF avoids LR's convergence warnings at 541 one-hot columns and needs no
+feature scaling, not because it's a meaningfully more accurate model. "Wins decisively" was itself
+a headline-number claim that hadn't been tested properly, the same category of finding as this
+project's own leakage/staleness catches elsewhere in this README — caught by actually running the
+significance test, not by assuming a single split generalizes.
+
+Separately, and confirmed *not* related to the finding above: an earlier version of this README
+reported LR winning at 0.992 on this same full feature set — that number was stale, from before the
+deployed model was retrained on the current 15-feature pipeline. And `LogisticRegression`'s
+`max_iter` was raised from 1000 to 3000 to fix a genuine convergence warning at 541 one-hot columns
+— reported because an unconverged model shouldn't be quoted as a real number, but confirmed not to
+be what flips either result: the tie holds at both 1000 and 3000 iterations.
 
 ## Key Technical Decisions
 
@@ -132,7 +147,7 @@ code.
 Full breakdown in [`docs/data-contract.md`](docs/data-contract.md).
 
 ## Stack
-Python · Pandas · SQL · PostgreSQL · scikit-learn · MLflow · SHAP · FastAPI · Docker
+Python · Pandas · SciPy · SQL · PostgreSQL · scikit-learn · MLflow · SHAP · FastAPI · Prometheus · Docker
 
 Containerised and stateless per-request (all state lives in Postgres, not in-process) — the same
 `Dockerfile` runs unmodified as a Kubernetes `Deployment` behind a `ClusterIP` `Service`. No k8s
@@ -249,6 +264,27 @@ machine's network path to Neon is measurably slower and noisier than
 Render's own — confirmed by comparing against the live deployment's own
 health-check timing). Full numbers, methodology, and why the second point
 matters as much as the first: [`docs/api-latency.md`](docs/api-latency.md).
+
+## Monitoring
+
+`GET /metrics` — a real Prometheus scrape target (`prometheus_client`, not a
+hand-rolled lookalike), unauthenticated like `/health`. Instrumented once, in
+`src/api/middleware.py`, feeding both the existing structured request log and
+this endpoint from the same measurement — not two places that could drift
+apart:
+
+- `http_requests_total{method,path,status_code}` — counted by matched route
+  template (`/orders/{case_id}/risk`), not raw URL, so per-case traffic
+  doesn't explode into unbounded label cardinality over time.
+- `http_request_duration_seconds` — a histogram, bucketed to this API's
+  actual observed range (seconds, not milliseconds — see API latency above),
+  not the library's generic sub-10s defaults.
+- `sla_predictions_total{risk_level}` — every real call to
+  `/orders/{case_id}/risk`, labeled by the risk bucket it returned.
+
+Point Prometheus at `/metrics` and this is a real scrape target today, not a
+placeholder for one — this project previously had no monitoring surface
+beyond structured logs and a manual `pipeline_runs` audit table.
 
 ## Architecture
 ![Architecture diagram](docs/architecture.svg)

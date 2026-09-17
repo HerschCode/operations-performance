@@ -62,12 +62,22 @@ actually present/active for that specific case. This is **not SHAP** -- it's a l
 approximation (global importance filtered to the row's active features), and it's described that
 way rather than oversold. SHAP is a legitimate Tier 3 upgrade if it's worth the added dependency.
 
-## Known limitations
-- Feature set is minimal (see above) -- current model quality reflects that, not a ceiling on
-  what's achievable with this data
-- No monitoring for feature or label drift once trained -- retraining cadence is currently manual
-- Explainability is global-importance-based, not a true per-prediction attribution method
-- No fairness/bias review across supplier or category segments has been done yet
+## Known limitations (updated -- several of these were closed after this doc was first written; left dated rather than silently correct with no trace)
+- ~~Feature set is minimal~~ **Closed.** 15 features across process, temporal, and
+  causal supplier-history families (`src/ml/features.py`) -- see README's ablation study.
+- ~~No monitoring for feature or label drift once trained~~ **Closed.**
+  `GET /observability/prediction-drift` compares live prediction distributions against a
+  training-time baseline; `GET /metrics` (Prometheus) tracks prediction volume by risk_level
+  in real time. Retraining itself is still manually triggered, not automated on a drift signal.
+- ~~Explainability is global-importance-based, not a true per-prediction attribution method~~
+  **Closed.** Real SHAP (`src/ml/explain_shap.py`, `shap.Explainer`) is wired into
+  `GET /orders/{case_id}/risk?explain=true` -- genuine per-prediction attribution, not a proxy.
+- **Still open:** no fairness/bias review across supplier or category segments has been done.
+- **Still open:** the single-split "which model wins" comparison this doc's model-selection
+  section describes doesn't hold up under a proper paired significance test across CV folds --
+  see [`docs/statistical-significance.md`](statistical-significance.md). Random forest and
+  logistic regression are statistically indistinguishable; RF is kept for operational reasons
+  (no scaling needed, no convergence warnings at 541 one-hot columns), not a proven accuracy edge.
 
 ## When to retrain
 No automated trigger yet (Tier 3: revisit once Phase 10 observability is in place). Manually,

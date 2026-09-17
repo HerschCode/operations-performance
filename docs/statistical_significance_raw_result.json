@@ -1,0 +1,44 @@
+{
+  "bootstrap_ci_deployed_model": {
+    "point_estimate": 0.9856815578465062,
+    "n_bootstrap_resamples_used": 2000,
+    "ci_95_low": 0.9741684363958444,
+    "ci_95_high": 0.9948546422131328,
+    "bootstrap_std": 0.005307791143544789
+  },
+  "paired_significance_rf_vs_lr": {
+    "model_a": "random_forest",
+    "model_b": "logistic_regression",
+    "fold_scores_a": [
+      0.9624,
+      0.8483,
+      0.971,
+      0.9737,
+      0.9688
+    ],
+    "fold_scores_b": [
+      0.9235,
+      0.9908,
+      0.9714,
+      0.999,
+      0.8592
+    ],
+    "per_fold_diff": [
+      0.038900000000000046,
+      -0.14249999999999996,
+      -0.00040000000000006697,
+      -0.02529999999999999,
+      0.10960000000000003
+    ],
+    "mean_diff": -0.003939999999999988,
+    "paired_ttest": {
+      "statistic": -0.09500977403437476,
+      "p_value": 0.9288763589025064
+    },
+    "wilcoxon_signed_rank": {
+      "statistic": 7.0,
+      "p_value": 1.0
+    },
+    "n_folds": 5
+  }
+}

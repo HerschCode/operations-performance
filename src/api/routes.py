@@ -4,6 +4,7 @@ import pandas as pd
 
 from src.api.db import load_events, load_cases, check_connection, get_engine
 from src.api.auth import require_api_key
+from src.api.metrics import PREDICTIONS_TOTAL, render_metrics
 from src.api.schemas import (
     HealthResponse,
     CycleTimeResponse,
@@ -44,6 +45,18 @@ health_router = APIRouter()
 @health_router.get("/health", response_model=HealthResponse)
 def health():
     return HealthResponse(status="ok", database_connected=check_connection())
+
+
+@health_router.get("/metrics", include_in_schema=False)
+def metrics():
+    """Prometheus scrape target. Unauthenticated, same convention as /health --
+    a monitoring system polling this every 15-30s shouldn't need a credential
+    any more than a load balancer's health check does. See src/api/metrics.py
+    and src/api/middleware.py for what's actually instrumented (request count
+    and latency histogram by route+status, plus a prediction counter by
+    risk_level)."""
+    body, content_type = render_metrics()
+    return PlainTextResponse(content=body.decode("utf-8"), media_type=content_type)
 
 
 @health_router.get("/health/model")
@@ -190,10 +203,13 @@ def order_risk(case_id: str, explain: bool = Query(default=False, description="I
         raw = explain_prediction_shap(bundle["model"], X_all_aligned, X_case_aligned, top_n=5)
         explanation = [FactorExplanation(**f) for f in raw]
 
+    risk_level = str(prediction.iloc[0]["risk_level"])
+    PREDICTIONS_TOTAL.labels(risk_level=risk_level).inc()
+
     return SlaRiskResponse(
         case_id=case_id,
         breach_probability=float(prediction.iloc[0]["breach_probability"]),
-        risk_level=str(prediction.iloc[0]["risk_level"]),
+        risk_level=risk_level,
         explanation=explanation,
     )
 
