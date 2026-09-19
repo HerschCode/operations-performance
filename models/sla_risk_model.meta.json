@@ -1,7 +1,13 @@
 {
   "model_name": "random_forest",
-  "trained_at": "2026-09-13T07:24:17.564154+00:00",
+  "trained_at": "2026-09-19T11:28:22.095813+00:00",
   "train_row_count": 2400,
   "test_row_count": 600,
-  "roc_auc": 0.9857
+  "roc_auc": 0.9857,
+  "train_risk_distribution": {
+    "LOW": 4,
+    "MEDIUM": 2,
+    "HIGH": 594
+  },
+  "train_breach_rate": 0.9922
 }
