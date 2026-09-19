@@ -9,12 +9,15 @@ a conversational interface over this same data. Free-tier hosting, first request
 wake up.
 
 An operations analytics and process-intelligence platform for a Procure-to-Pay (P2P) process —
-built for a fictional client, **Northstar Manufacturing** — that predicts, before a purchase order
-closes, whether it will breach its contracted SLA. SLA breaches cost money (supplier penalties,
-expediting fees, customer trust) and are largely predictable from early process signals: which
-supplier, which process variant, what time of day the order started. A machine-learning risk score
-surfaced at case creation time lets operations teams intervene before a breach happens rather than
-audit it after. This project builds that predictor end to end — from raw event log ingestion and
+built for a fictional client, **Northstar Manufacturing** — that estimates, for a purchase order in progress,
+whether it will breach its contracted SLA. SLA breaches cost money (supplier penalties,
+expediting fees, customer trust) and teams want early warning on them. Signals used here include
+supplier, process variant, and start time (early signals alone turned out to be weak — see the caveat below). A machine-learning risk score,
+re-scored as a case progresses, lets operations teams flag likely breaches for intervention rather than
+audit them after. **Caveat, measured:** most of the model's skill comes from features that are only
+known late in a case (event count, full activity sequence), so it is a late-stage/triage risk score,
+not a creation-time predictor — see [`docs/prediction-time-availability.md`](docs/prediction-time-availability.md).
+This project builds that predictor end to end — from raw event log ingestion and
 SQL process mining through ML training, FastAPI serving, and experiment tracking in MLflow.
 
 Pairs with [`operations-assistant`](../operations-assistant), which lets a user *investigate*
@@ -185,7 +188,8 @@ The process family drives the largest gain (+0.152 ROC-AUC) — `unique_activity
 
 Feature families:
 
-- **Baseline** — `event_count`, `variant_frequency`, `category`, `supplier_id`: case-structural signals available immediately on case creation.
+- **Baseline** — `event_count`, `variant_frequency`, `category`, `supplier_id`: case-structural signals. `category` and `supplier_id` are known at creation; `event_count` and
+  `variant_frequency` are aggregates over the finished case and are **not** (see the prediction-time note below).
 - **Temporal** — `start_hour`, `start_dayofweek`, `start_month`, `start_quarter`: cases starting late in a shift, before weekends, or at year-end have less runway before SLA clocks expire. Month/quarter capture intra-year seasonality.
 - **Process** — `first_activity`, `last_activity`, `unique_activity_count`, `rework_count`: the breadth of the process path (`unique_activity_count`) and the count of repeated activities (`rework_count`, the process-mining definition of rework) are the most predictive signals in the dataset.
 - **Supplier history** — `supplier_historical_breach_rate` and `supplier_historical_median_cycle_time`: *causal* features built with `shift(1)` + expanding window so each case only sees its supplier's *prior* history — no future-case leakage. A supplier's first case uses the overall prior as neutral fallback. `sla_target_hours` is the SLA threshold for this case's category (not derived from `end_time` or `cycle_time_hours`, so not leakage — it's a configuration input, not a case outcome).
