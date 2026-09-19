@@ -61,6 +61,14 @@ Baseline (always predict 97% breach rate): Brier = 0.0291. Brier Skill Score > 0
 
 At t=0.35 (optimal for 5:1, 10:1, and 20:1 cost ratios): 100% recall (zero missed breaches), 98.6% precision, 8 false alarms on 590 flagged cases. The calibrated probability output makes this threshold interpretable: `P(breach | score ≥ 0.35) ≈ 35%` of flagged cases breach — a probability, not an arbitrary rank cutoff. The recommended operational instruction is "flag every case the model scores ≥ 0.35" rather than "flag the top-k ranked cases."
 
+**Base-rate caveat (measured, `scripts/` one-off check):** the held-out test split is **97.0% breaches
+— only 18 of 600 cases are non-breaches** (93.8% overall, 93.0% in the training window). A
+"flag every case" rule therefore already gets 100% recall and 97.0% precision with 18 false alarms; the
+model at t=0.35 gets 98.6% precision with 8. That is a real but small improvement, and ROC-AUC on this
+split is computed by ranking 18 negatives against 582 positives, so treat 0.986 (and the threshold table
+above) as fragile, high-variance numbers rather than evidence of a strong classifier. The dataset's SLA
+targets make breaching the norm; a more informative evaluation would use a less degenerate target.
+
 Top features by importance (random forest): `unique_activity_count` (0.161), `event_count`
 (0.122), `last_activity_Clear Invoice` (0.119), `supplier_historical_median_cycle_time` (0.095),
 `variant_frequency` (0.089) — consistent with the ablation study's finding that the process family
