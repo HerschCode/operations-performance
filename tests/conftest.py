@@ -35,3 +35,17 @@ def _no_real_dotenv(monkeypatch):
     monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: False)
     monkeypatch.delenv("API_KEY", raising=False)
     monkeypatch.delenv("API_KEYS", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _unreachable_database(monkeypatch):
+    """Point the DB at a closed local port so any test that forgets to mock the data
+    layer fails fast instead of silently reaching a real (e.g. Neon) instance. Verified:
+    the full suite passes with the database unreachable, so it is network-independent."""
+    monkeypatch.setenv("DB_HOST", "127.0.0.1")
+    monkeypatch.setenv("DB_PORT", "1")
+    monkeypatch.setenv("DB_USER", "test")
+    monkeypatch.setenv("DB_PASSWORD", "test")
+    monkeypatch.setenv("DB_NAME", "test")
+    monkeypatch.delenv("API_DB_USER", raising=False)
+    monkeypatch.delenv("API_DB_PASSWORD", raising=False)
