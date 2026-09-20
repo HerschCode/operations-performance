@@ -30,9 +30,15 @@ the earlier temporal period, tested on the later one — never a random shuffle)
 full 15-feature set (previous numbers here were from an earlier 8-feature run and are now stale —
 replaced rather than left inconsistent with the ablation study below):
 
+> **Read these numbers with the base-rate caveat below.** On the configured SLA targets 97% of held-out cases are
+> breaches (18 negatives of 600), so the figures in this table are inflated by a degenerate target. On less degenerate
+> breach definitions (52% and 27% base rates) the same model scores **ROC-AUC 0.83-0.89**, and **0.51-0.65** using only
+> creation-time features. Treat 0.83-0.89 as the realistic figure; see [Base-rate caveat](#base-rate-caveat) and
+> [`docs/less-degenerate-target.md`](docs/less-degenerate-target.md).
+
 | Model | Precision | Recall | F1 | ROC-AUC |
 |---|---|---|---|---|
-| Random forest (deployed) | 0.983 | 0.991 | 0.987 | 0.986 |
+| Random forest (deployed) - degenerate target, inflated | 0.983 | 0.991 | 0.987 | 0.986 |
 | Logistic regression | 0.986 | 0.993 | 0.990 | 0.910 |
 | Gradient boosting | 0.986 | 0.993 | 0.990 | 0.769 |
 
@@ -48,7 +54,7 @@ replaced rather than left inconsistent with the ablation study below):
 
 Baseline (always predict 97% breach rate): Brier = 0.0291. Brier Skill Score > 0 means better than the naive forecaster; a score of 0.526 means the calibrated GB model explains 52.6% of the improvable uncertainty. Calibration uses isotonic regression via `CalibratedClassifierCV(FrozenEstimator(model))` on the training split — the calibrated model is what the API serves, not the raw probability output.
 
-**Why this matters operationally:** ROC-AUC of 0.986 means the model ranks cases correctly. Brier score measures whether `breach_probability: 0.73` actually means ~73% of similar cases breach — a calibrated score is a decision input, not just a ranking. An operations team setting intervention thresholds needs calibrated probabilities to reason about cost vs. benefit; a poorly calibrated model produces misleading risk scores even at high AUC.
+**Why this matters operationally:** ROC-AUC of 0.986 (on the degenerate 97%-breach target; 0.83-0.89 on realistic base rates) means the model ranks cases correctly. Brier score measures whether `breach_probability: 0.73` actually means ~73% of similar cases breach — a calibrated score is a decision input, not just a ranking. An operations team setting intervention thresholds needs calibrated probabilities to reason about cost vs. benefit; a poorly calibrated model produces misleading risk scores even at high AUC.
 
 **Cost-sensitive threshold analysis** (`scripts/cost_threshold_analysis.py`) — sweeps the decision threshold against three FN/FP cost ratios, making the operational deployment recommendation explicit rather than defaulting to sklearn's t=0.5:
 
@@ -61,6 +67,7 @@ Baseline (always predict 97% breach rate): Brier = 0.0291. Brier Skill Score > 0
 
 At t=0.35 (optimal for 5:1, 10:1, and 20:1 cost ratios): 100% recall (zero missed breaches), 98.6% precision, 8 false alarms on 590 flagged cases. The threshold is applied to a calibrated probability, so 0.35 means "estimated breach probability of at least 35%" — but note that with a 97% base rate almost every case clears it (590 of 600 were flagged), so on this split the threshold barely discriminates; 98.6% of flagged cases breach only because nearly all cases do. The recommended operational instruction is "flag every case the model scores ≥ 0.35" rather than "flag the top-k ranked cases."
 
+<a id="base-rate-caveat"></a>
 **Base-rate caveat (measured, `scripts/` one-off check):** the held-out test split is **97.0% breaches
 — only 18 of 600 cases are non-breaches** (93.8% overall, 93.0% in the training window). A
 "flag every case" rule therefore already gets 100% recall and 97.0% precision with 18 false alarms; the
