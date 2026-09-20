@@ -67,7 +67,19 @@ At t=0.35 (optimal for 5:1, 10:1, and 20:1 cost ratios): 100% recall (zero misse
 model at t=0.35 gets 98.6% precision with 8. That is a real but small improvement, and ROC-AUC on this
 split is computed by ranking 18 negatives against 582 positives, so treat 0.986 (and the threshold table
 above) as fragile, high-variance numbers rather than evidence of a strong classifier. The dataset's SLA
-targets make breaching the norm; a more informative evaluation would use a less degenerate target.
+targets make breaching the norm; that is why the evaluation was repeated on a less degenerate target:
+
+| Breach definition | Holdout base rate | Holdout ROC-AUC (RF / LR) | PR-AUC (RF) vs base rate |
+|---|---|---|---|
+| Configured 10–14 days (deployed) | 97.0% (18 negatives) | 0.985 / 0.910 | 1.000 vs 0.970 |
+| Training-window p50 cycle time | 51.7% (290 negatives) | 0.830 / 0.783 | 0.812 vs 0.517 |
+| Training-window p75 cycle time | 27.0% (438 negatives) | 0.885 / 0.833 | 0.745 vs 0.270 |
+
+With negatives that aren't rare, the same model scores **0.83–0.89**, not 0.986 — a real signal,
+but the headline above should be read as an artifact of the degenerate target. Using
+creation-time-only features it is ~0.51–0.65. Details and method (percentiles taken from the
+training window only): [`docs/less-degenerate-target.md`](docs/less-degenerate-target.md);
+reproduce with `python -m scripts.target_sensitivity`.
 
 Top features by importance (random forest): `unique_activity_count` (0.161), `event_count`
 (0.122), `last_activity_Clear Invoice` (0.119), `supplier_historical_median_cycle_time` (0.095),
