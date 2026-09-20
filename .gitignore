@@ -21,3 +21,6 @@ models/*
 *.pbix
 mlflow.db
 mlruns/
+
+# External datasets are downloaded on demand (licence terms apply), never committed
+data/external/

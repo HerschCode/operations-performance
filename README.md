@@ -17,6 +17,10 @@ re-scored as a case progresses, lets operations teams flag likely breaches for i
 audit them after. **Caveat, measured:** most of the model's skill comes from features that are only
 known late in a case (event count, full activity sequence), so it is a late-stage/triage risk score,
 not a creation-time predictor — see [`docs/prediction-time-availability.md`](docs/prediction-time-availability.md).
+On an independent public log (BPI 2012, label not defined by this project) the same pattern holds —
+full-case features 0.93–0.995 ROC-AUC, creation-time-only ~0.62–0.65 — while the first three events
+already recover 0.77–0.92; see [`docs/external-validation-bpi2012.md`](docs/external-validation-bpi2012.md)
+(a prefix model has *not* been built for this project's own BPI 2019 pipeline).
 This project builds that predictor end to end — from raw event log ingestion and
 SQL process mining through ML training, FastAPI serving, and experiment tracking in MLflow.
 
