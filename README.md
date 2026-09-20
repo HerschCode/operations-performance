@@ -20,7 +20,10 @@ not a creation-time predictor — see [`docs/prediction-time-availability.md`](d
 On an independent public log (BPI 2012, label not defined by this project) the same pattern holds —
 full-case features 0.93–0.995 ROC-AUC, creation-time-only ~0.62–0.65 — while the first three events
 already recover 0.77–0.92; see [`docs/external-validation-bpi2012.md`](docs/external-validation-bpi2012.md)
-(a prefix model has *not* been built for this project's own BPI 2019 pipeline).
+A prefix model built on this project's own BPI 2019 data gains only +0.03 to +0.13 ROC-AUC over
+creation-time features (absolute 0.62–0.76), see [`docs/prefix-model-bpi2019.md`](docs/prefix-model-bpi2019.md).
+Every issue found along the way, and whether it was fixed or the claim was recalibrated, is in the
+[development log](docs/development-log.md).
 This project builds that predictor end to end — from raw event log ingestion and
 SQL process mining through ML training, FastAPI serving, and experiment tracking in MLflow.
 
