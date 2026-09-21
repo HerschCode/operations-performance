@@ -10,6 +10,7 @@ from unittest.mock import patch, MagicMock
 from src.ml.retrain_trigger import RetrainRecommendation
 
 
+
 @patch("scripts.check_and_retrain.save_best_model")
 @patch("scripts.check_and_retrain.train_models")
 @patch("scripts.check_and_retrain.build_features")
@@ -61,3 +62,16 @@ def test_retrains_when_needed(
     mock_load_cases.assert_called_once()
     mock_train.assert_called_once()
     mock_save.assert_called_once()
+
+
+def test_fails_fast_with_clear_message_when_db_secrets_are_empty(monkeypatch, capsys):
+    # Reproduces the scheduled-workflow failure mode: unset Actions secrets arrive as empty strings.
+    for k in ("DB_HOST", "DB_NAME", "DB_USER", "DB_PASSWORD"):
+        monkeypatch.setenv(k, "")
+    from scripts.check_and_retrain import main
+    with patch("scripts.check_and_retrain.load_dotenv"), patch("scripts.check_and_retrain.get_current_case_count") as count:
+        code = main()
+    assert code == 2
+    count.assert_not_called()
+    err = capsys.readouterr().err
+    assert "DB_HOST" in err and "Secrets and variables" in err

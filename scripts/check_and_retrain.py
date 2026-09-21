@@ -11,7 +11,12 @@ retrain (not on "no retrain needed" -- that's the expected, common outcome, not 
 failure) so a human glancing at Action run history can tell "did anything happen"
 from the green/red status without opening logs, while still logging plainly either
 way.
+
+(Correction: that "non-zero on retrain" behaviour is NOT what the code does -- both
+branches return 0. A red run therefore always means an error, most commonly the DB
+secrets below being unset, never "a retrain happened".)
 """
+import os
 import sys
 
 from dotenv import load_dotenv
@@ -34,8 +39,27 @@ def get_current_case_count() -> int:
         return conn.execute(text("SELECT COUNT(*) FROM analytics.process_cases")).scalar()
 
 
+REQUIRED_DB_ENV = ("DB_HOST", "DB_NAME", "DB_USER", "DB_PASSWORD")
+
+
+def missing_db_env() -> list[str]:
+    return [k for k in REQUIRED_DB_ENV if not os.environ.get(k)]
+
+
 def main() -> int:
     load_dotenv()
+    missing = missing_db_env()
+    if missing:
+        # In GitHub Actions an unset repository secret expands to an empty string, and the DB layer
+        # then silently falls back to localhost and fails with a bare "connection refused" -- which
+        # is what made the scheduled run fail daily with no hint why. Say it plainly instead.
+        print(
+            "ERROR: required database settings are empty: " + ", ".join(missing) + ". "
+            "In GitHub Actions set them under Settings -> Secrets and variables -> Actions "
+            "(DB_HOST, DB_NAME, DB_USER, DB_PASSWORD).",
+            file=sys.stderr,
+        )
+        return 2
     case_count = get_current_case_count()
     logger.info("Checking retrain need", extra={"current_case_count": case_count})
 
