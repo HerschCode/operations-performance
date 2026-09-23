@@ -234,8 +234,18 @@ Every feature derived from `end_time` or `cycle_time_hours` was deliberately
 own target.
 
 ## Sample analytical SQL
-One of several window-function queries in [`sql/analysis/`](sql/analysis/) — bottleneck
-detection via `LEAD()` to compute stage-to-stage duration per case, ranked by average
+9 window-function queries in [`sql/analysis/`](sql/analysis/), covering `LAG`/`LEAD`,
+`RANK`/`DENSE_RANK`, `NTILE`, `PERCENT_RANK`, `FIRST_VALUE`/`LAST_VALUE`, and rolling/cohort
+windows over both `RANGE` (calendar-time) and `ROWS` frames — each run live against the real
+Neon database, not just written and left untested. Two real Postgres gotchas were found and
+fixed by actually running them (`COUNT(DISTINCT ...) OVER (...)` doesn't exist; `ROUND` needs a
+`numeric` cast), and a third, more consequential bug in the schema migration runner itself
+surfaced a real gap between the repo's intended indexes and what was actually live on the
+database — full writeup, `EXPLAIN ANALYZE` before/after an index, and an honest negative result
+(the index changed the query plan but not the measured runtime at this table's current size):
+[`docs/sql-window-functions.md`](docs/sql-window-functions.md).
+
+Bottleneck detection via `LEAD()` to compute stage-to-stage duration per case, ranked by average
 delay contribution (full file: [`sql/analysis/bottlenecks.sql`](sql/analysis/bottlenecks.sql)):
 
 ```sql
