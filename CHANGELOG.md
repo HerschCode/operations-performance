@@ -1,5 +1,46 @@
 # Changelog
 
+## Unreleased -- Post-v1.0.0 upgrade work
+
+### Phase 1: Real analytical SQL (2026-09-24)
+`sql/analysis/*.sql` was thin -- `bottlenecks.sql` was the only file using a window function,
+despite docs claiming LAG/LEAD/RANK/rolling metrics (v1.0.0's own "known limitations" already
+named this: "`sql/analysis/*.sql` still stubs"). Closed:
+
+- 9 new/rewritten files, run live against Neon, not just written: `waiting_time_lag.sql` (LAG),
+  `variant_ranking.sql` (RANK/DENSE_RANK, two rankings -- volume and breach rate),
+  `rolling_sla_breach_rate.sql` (RANGE window frame over a calendar interval, per category),
+  `monthly_cohort_breach_trend.sql` (cumulative SUM() OVER), `supplier_quartiles.sql`
+  (NTILE/PERCENT_RANK), `slowest_stage_per_case.sql` (FIRST_VALUE/LAST_VALUE),
+  `running_event_count.sql` (ROW_NUMBER + a correlated subquery, with the reasoning for why a
+  window function doesn't fit that specific question), `category_relative_cycle_time.sql`
+  (PERCENT_RANK/z-score), `rework_detection.sql` (window COUNT, no self-join).
+- 3 real bugs found by running these, not by inspection: `COUNT(DISTINCT ...) OVER (...)`
+  doesn't exist in Postgres; `ROUND(double precision, integer)` doesn't exist; `QUALIFY`
+  (Snowflake/BigQuery syntax) doesn't exist either. All three fixed with the correct Postgres
+  idiom, documented in the file where they were found.
+- A 4th, more consequential bug in `scripts/setup_database.py`'s migration runner (naive
+  `split(";")` breaks on a semicolon inside a `--` comment) surfaced real schema drift: none of
+  `sql/schema/002_create_indexes.sql`'s indexes had ever actually been applied to the live
+  database. Fixed and re-applied for real, verified via `pg_indexes`.
+- `EXPLAIN ANALYZE` before/after a new `(case_id, timestamp)` composite index: the query plan
+  changed (Seq Scan -> Index Scan) but measured execution time did not (58.4ms -> 59.2ms) at
+  this table's current 32K-row size -- reported as a real negative result, not a speedup.
+- Seeded-database test suite (`tests/test_sql_analysis_live.py`): no local Postgres/Docker is
+  available in this environment, so it seeds a real, throwaway Postgres *database* (not just a
+  schema -- these files hardcode `staging.`/`analytics.` schema names, which already exist in
+  production on the same server) on the same Neon project, with hand-designed fixture data whose
+  correct answers are known in advance, runs all 10 files against it, and drops the database in
+  a `finally` block. Opt-in (`RUN_LIVE_SQL_TESTS=1`) since it needs real DB credentials with
+  `CREATE DATABASE` privilege that CI does not have configured.
+- Full writeup: [`docs/sql-window-functions.md`](docs/sql-window-functions.md).
+
+Remaining, explicitly deferred, larger phases (dbt transformation layer, Prefect orchestration,
+feature-level drift, a sequence model for early prediction, an intervention/ROI simulation
+layer, README rewrite) are tracked separately -- not attempted in this same pass, since each is
+a multi-day scope of its own and rushing them would violate this project's own honesty standard
+(every number reproducible, negative results reported not tuned away).
+
 ## v1.0.0 -- Freeze
 
 Everything through Phase 30 (Performance & cost pass) is complete, tested, and audited. This is

@@ -234,16 +234,29 @@ Every feature derived from `end_time` or `cycle_time_hours` was deliberately
 own target.
 
 ## Sample analytical SQL
-9 window-function queries in [`sql/analysis/`](sql/analysis/), covering `LAG`/`LEAD`,
-`RANK`/`DENSE_RANK`, `NTILE`, `PERCENT_RANK`, `FIRST_VALUE`/`LAST_VALUE`, and rolling/cohort
-windows over both `RANGE` (calendar-time) and `ROWS` frames — each run live against the real
-Neon database, not just written and left untested. Two real Postgres gotchas were found and
-fixed by actually running them (`COUNT(DISTINCT ...) OVER (...)` doesn't exist; `ROUND` needs a
-`numeric` cast), and a third, more consequential bug in the schema migration runner itself
-surfaced a real gap between the repo's intended indexes and what was actually live on the
-database — full writeup, `EXPLAIN ANALYZE` before/after an index, and an honest negative result
-(the index changed the query plan but not the measured runtime at this table's current size):
+10 files in [`sql/analysis/`](sql/analysis/) covering `LAG`/`LEAD`, `RANK`/`DENSE_RANK`,
+`NTILE`, `PERCENT_RANK`, `FIRST_VALUE`/`LAST_VALUE`, `ROW_NUMBER`, and rolling/cohort windows
+over both `RANGE` (calendar-time) and `ROWS` frames — each run live against the real Neon
+database, not just written and left untested, and covered by a seeded-database test suite
+(`tests/test_sql_analysis_live.py`, opt-in — see below). Three real Postgres gotchas were found
+and fixed by actually running them: `COUNT(DISTINCT ...) OVER (...)` doesn't exist (worked
+around with a correlated subquery, not forced into a window-function shape that doesn't fit);
+`ROUND(double precision, integer)` doesn't exist; and `QUALIFY` (Snowflake/BigQuery syntax)
+doesn't exist in Postgres either — a window function's own result has to be filtered in an outer
+query, not the same `SELECT` it's computed in. A fourth, more consequential bug in the schema
+migration runner itself surfaced real schema drift: none of `sql/schema/002_create_indexes.sql`'s
+indexes had ever actually been applied to the live database. Full writeup, `EXPLAIN ANALYZE`
+before/after a new index, and an honest negative result (the index changed the query plan but
+not the measured runtime at this table's current size):
 [`docs/sql-window-functions.md`](docs/sql-window-functions.md).
+
+**Seeded-database test:** no local Postgres or Docker is available in this environment, so
+`tests/test_sql_analysis_live.py` seeds a real, throwaway Postgres *database* (not just a schema
+— these files hardcode `staging.`/`analytics.` names, which already exist in production on the
+same server) on the same Neon project, with hand-designed fixture data whose correct answers are
+known in advance, runs all 10 files against it, and drops the database afterward. Opt-in —
+`RUN_LIVE_SQL_TESTS=1 python -m pytest tests/test_sql_analysis_live.py -v` — since it needs
+`CREATE DATABASE` privilege CI isn't configured with.
 
 Bottleneck detection via `LEAD()` to compute stage-to-stage duration per case, ranked by average
 delay contribution (full file: [`sql/analysis/bottlenecks.sql`](sql/analysis/bottlenecks.sql)):
