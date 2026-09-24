@@ -2,6 +2,12 @@
 
 ## Unreleased -- Post-v1.0.0 upgrade work
 
+### Phase 7: README rewrite (2026-09-24)
+- README cut from 368 to ~100 lines: leads with the honest headline (late-stage triage 0.83-0.89 on
+  realistic targets; early-case 0.62-0.76), new title, architecture SVG redrawn for Phases 1-6,
+  one-command reproduction table.
+- The previous README moved verbatim to `docs/evaluation.md` (links fixed); no caveat was dropped.
+
 ### Phase 6: Intervention ledger + ROI simulation (2026-09-24)
 - `analytics.interventions` table (migration 005), `config/interventions.yaml` policy, `src/roi/ledger.py`.
 - New `POST /interventions` (admin, validated; separate write engine since the API's default DB
