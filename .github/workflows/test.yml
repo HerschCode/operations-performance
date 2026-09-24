@@ -20,7 +20,13 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        # prefect (not dbt-core/dbt-postgres) is needed here: tests/test_pipeline_flow.py
+        # imports flows/pipeline_flow.py at module level, which imports prefect -- but dbt is
+        # only ever invoked as a subprocess inside a task body, never imported directly, so it
+        # isn't needed for these (mocked, no live DB) unit tests to run. The full
+        # requirements-orchestration.txt (dbt-core + dbt-postgres + prefect) is only needed to
+        # actually run flows/pipeline_flow.py or dbt/, covered by .github/workflows/dbt.yml.
+        run: pip install -r requirements.txt prefect
 
       - name: Run test suite
         run: python -m pytest tests/ -v
