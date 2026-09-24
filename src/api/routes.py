@@ -22,6 +22,8 @@ from src.api.schemas import (
     DataQualityReport,
     RiskBucketDrift,
     PredictionDriftReport,
+    FeatureDriftRow,
+    FeatureDriftReportSchema,
 )
 from src.analytics.cycle_time import cycle_time_percentiles, stage_summary
 from src.analytics.bottlenecks import identify_bottlenecks
@@ -372,6 +374,32 @@ def data_quality():
         overall=overall,
         checked_at=datetime.now(timezone.utc).isoformat(),
         checks=checks,
+    )
+
+
+@health_router.get("/health/drift/features", response_model=FeatureDriftReportSchema)
+def feature_drift():
+    """Per-feature Population Stability Index of the most recent `current_window_cases` cases vs
+    the deployed model's training-time baselines (models/sla_risk_model.meta.json's
+    feature_baselines). Complements /observability/prediction-drift, which only sees the model's
+    OUTPUT distribution -- inputs shift first. Thresholds: config/drift.yaml."""
+    from datetime import datetime, timezone
+    from src.ml.feature_drift import current_feature_drift, load_drift_config
+
+    cfg = load_drift_config()
+    try:
+        report = current_feature_drift()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"feature drift unavailable: {str(exc)[:120]}")
+    return FeatureDriftReportSchema(
+        status=report.status,
+        checked_at=datetime.now(timezone.utc).isoformat(),
+        n_current_rows=report.n_current_rows,
+        alert_features=report.alert_features,
+        features=[FeatureDriftRow(feature=f.feature, psi=f.psi, status=f.status) for f in report.features],
+        thresholds={"psi_warn": cfg["psi_warn"], "psi_alert": cfg["psi_alert"],
+                    "retrain_min_alert_features": cfg["retrain_min_alert_features"]},
+        note=report.note,
     )
 
 

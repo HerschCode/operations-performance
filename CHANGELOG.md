@@ -2,6 +2,16 @@
 
 ## Unreleased -- Post-v1.0.0 upgrade work
 
+### Phase 4: Feature drift + retrain loop (2026-09-24)
+- `src/ml/feature_drift.py`: per-feature PSI on raw inputs, baselines saved in model metadata at
+  train time (`config/drift.yaml` thresholds). `scripts/backfill_feature_baselines.py` added them to
+  the deployed model without retraining.
+- New `GET /health/drift/features` (additive; existing endpoints unchanged) + dashboard section.
+- `retrain_trigger` gains a feature-drift reason; the Prefect flow gains `retrain_gate_task`
+  (`force_retrain` option). Simulated-drift tests prove it fires and that calm data skips training.
+- Honest finding: on the static replay data 9/10 features alert (train-vs-later-period gap);
+  thresholds not tuned. See `docs/feature-drift.md`.
+
 ### Phase 3: Prefect orchestration (2026-09-24)
 No orchestration existed beyond a bare GitHub Actions cron calling one script
 (`retrain-check.yml`). Added `flows/pipeline_flow.py`: ingest -> validate -> dbt build -> train

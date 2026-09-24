@@ -923,9 +923,10 @@ async function renderModelHealth() {
   const card = document.getElementById('model-health-card');
   const el = document.getElementById('model-health-body');
   try {
-    const [modelRes, driftRes] = await Promise.all([
+    const [modelRes, driftRes, featRes] = await Promise.all([
       fetch('/health/model'),
       fetch('/observability/prediction-drift').catch(() => null),
+      fetch('/health/drift/features').catch(() => null),
     ]);
     if (!modelRes.ok) { card.hidden = true; return; }
     const d = await modelRes.json();
@@ -977,6 +978,26 @@ async function renderModelHealth() {
       }
     }
 
+    // Feature drift — per-input PSI vs. training baseline (top 5 by PSI)
+    let featSection = '';
+    if (featRes && featRes.ok) {
+      const fd = await featRes.json();
+      if (fd.status !== 'no_baseline') {
+        const pillCls = { stable: 'ok', warn: 'warn', alert: 'fail' };
+        const col = { stable: 'var(--good)', warn: 'var(--warn)', alert: 'var(--bad)' };
+        const rows = (fd.features || []).slice(0, 5).map(f => `<div style="display:flex;gap:8px;font-size:0.78rem;padding:2px 0">
+          <span style="font-weight:600">${f.feature}</span>
+          <span style="color:${col[f.status]};font-weight:600;margin-left:auto">PSI ${f.psi.toFixed(2)}</span></div>`).join('');
+        featSection = `
+          <div class="card-sublabel" style="margin-top:14px;margin-bottom:6px">
+            Feature drift · last ${fd.n_current_rows} cases vs. training
+            <span class="pill ${pillCls[fd.status] || 'ok'}" style="margin-left:6px;font-size:0.68rem;vertical-align:middle">${fd.status}</span>
+          </div>
+          <div style="background:var(--panel2);border-radius:6px;padding:8px 10px">${rows}
+            <div style="font-size:0.7rem;color:var(--muted);margin-top:4px">${fd.alert_features.length} of ${fd.features.length} inputs past PSI ${fd.thresholds.psi_alert}</div></div>`;
+      }
+    }
+
     el.innerHTML = `
       <div class="model-meta">
         <div class="model-meta-item"><span class="model-meta-label">Model</span><span class="model-meta-val">${d.model_name || '—'}</span></div>
@@ -986,7 +1007,8 @@ async function renderModelHealth() {
         <div class="model-meta-item"><span class="model-meta-label">Train rows</span><span class="model-meta-val">${d.train_row_count != null ? d.train_row_count.toLocaleString() : '—'}</span></div>
       </div>
       ${distSection}
-      ${driftSection}`;
+      ${driftSection}
+      ${featSection}`;
     card.hidden = false;
   } catch (_) {
     card.hidden = true;

@@ -1,4 +1,4 @@
-"""PLAN.md Phase 3: ingest -> validate -> dbt build -> train -> evaluate -> register (only if
+"""PLAN.md Phases 3-4: ingest -> validate -> dbt build -> retrain gate (drift/age/volume) -> train -> evaluate -> register (only if
 it beats the current deployed model by a configured margin) -> report.
 
 Run locally with one command:
@@ -129,6 +129,30 @@ def dbt_build_task(_validate_result: None) -> str:
 
 
 @task
+def retrain_gate_task(_dbt_result: str, force: bool = False) -> dict:
+    """PLAN.md Phase 4: only retrain when src/ml/retrain_trigger.py says so -- time since
+    training, case-volume growth, or feature drift (per-input PSI vs the deployed model's
+    training baselines, src/ml/feature_drift.py). `force` bypasses the check. Runs AFTER ingest
+    + dbt so drift is measured on the freshly loaded data."""
+    logger = _logger()
+    from src.api.db import load_cases
+    from src.ml.feature_drift import current_feature_drift
+    from src.ml.retrain_trigger import check_retrain_needed
+
+    try:
+        drift = current_feature_drift()
+    except Exception as exc:  # drift is a signal, never a reason to break the flow
+        logger.warning(f"feature drift unavailable: {exc}")
+        drift = None
+    rec = check_retrain_needed(current_case_count=len(load_cases()), feature_drift=drift)
+    retrain = force or rec.should_retrain
+    reasons = (["forced by caller"] if force else []) + rec.reasons
+    logger.info(f"Retrain gate: {'RETRAIN' if retrain else 'SKIP'} -- {reasons or 'no trigger fired'}")
+    return {"retrain": retrain, "reasons": reasons,
+            "feature_drift_status": drift.status if drift else None}
+
+
+@task
 def train_task(_dbt_result: str) -> dict:
     """Trains all 3 candidate models on the current data -- src/ml/train.py's existing
     train_models(), not re-implemented. Does NOT call save_best_model() here: that's
@@ -210,12 +234,17 @@ def report_task(decision: dict) -> None:
 
 
 @flow(name="operations-performance-pipeline")
-def pipeline_flow():
+def pipeline_flow(force_retrain: bool = False):
     ingest_result = ingest_task()
     validate_result = validate_task(ingest_result)
     dbt_result = dbt_build_task(validate_result)
+    gate = retrain_gate_task(dbt_result, force_retrain)
+    if not gate["retrain"]:
+        decision = {"promoted": False, "retrained": False, "reason": "retrain gate: no trigger fired", "gate": gate}
+        report_task(decision)
+        return decision
     train_results = train_task(dbt_result)
-    decision = evaluate_and_register_task(train_results)
+    decision = {**evaluate_and_register_task(train_results), "retrained": True, "gate": gate}
     report_task(decision)
     return decision
 

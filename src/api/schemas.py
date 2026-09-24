@@ -119,5 +119,21 @@ class PredictionDriftReport(BaseModel):
     note: str | None = None
 
 
+class FeatureDriftRow(BaseModel):
+    feature: str
+    psi: float
+    status: str  # "stable" | "warn" | "alert"
+
+
+class FeatureDriftReportSchema(BaseModel):
+    status: str  # "stable" | "warn" | "alert" | "no_baseline"
+    checked_at: str
+    n_current_rows: int
+    alert_features: list[str]
+    features: list[FeatureDriftRow]
+    thresholds: dict[str, float]
+    note: str | None = None
+
+
 class ErrorResponse(BaseModel):
     detail: str
