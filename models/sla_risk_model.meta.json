@@ -9,5 +9,238 @@
     "MEDIUM": 2,
     "HIGH": 594
   },
-  "train_breach_rate": 0.9922
+  "train_breach_rate": 0.9922,
+  "feature_baselines": {
+    "event_count": {
+      "type": "numeric",
+      "edges": [
+        1.0,
+        3.0,
+        5.0,
+        6.0,
+        8.0,
+        830.0
+      ],
+      "shares": [
+        0.09708333333333333,
+        0.042083333333333334,
+        0.3933333333333333,
+        0.36541666666666667,
+        0.10208333333333333
+      ]
+    },
+    "variant_frequency": {
+      "type": "numeric",
+      "edges": [
+        1.0,
+        11.0,
+        42.0,
+        99.0,
+        155.0,
+        199.0,
+        413.0,
+        617.0
+      ],
+      "shares": [
+        0.19666666666666666,
+        0.09083333333333334,
+        0.07666666666666666,
+        0.12458333333333334,
+        0.06375,
+        0.06333333333333334,
+        0.38416666666666666
+      ]
+    },
+    "category": {
+      "type": "categorical",
+      "shares": {
+        "Packaging": 0.38458333333333333,
+        "Sales": 0.27125,
+        "Additives": 0.09208333333333334,
+        "Trading & End Products": 0.07166666666666667,
+        "Logistics": 0.04625,
+        "Latex & Monomers": 0.03,
+        "Titanium Dioxides": 0.020833333333333332,
+        "Solvents": 0.0175,
+        "CAPEX & SOCS": 0.015416666666666667,
+        "Pigments & Colorants": 0.015,
+        "Specialty Resins": 0.012083333333333333,
+        "UNKNOWN": 0.01,
+        "Others": 0.007083333333333333,
+        "Commodity Resins": 0.002916666666666667,
+        "Marketing": 0.0025,
+        "Enterprise Services": 0.0008333333333333334
+      }
+    },
+    "supplier_id": {
+      "type": "categorical",
+      "shares": {
+        "vendorID_0120": 0.06708333333333333,
+        "vendorID_0136": 0.050833333333333335,
+        "vendorID_0358": 0.04,
+        "vendorID_0118": 0.024166666666666666,
+        "vendorID_0182": 0.0225,
+        "vendorID_0119": 0.02125,
+        "vendorID_0357": 0.018333333333333333,
+        "vendorID_0108": 0.018333333333333333,
+        "vendorID_0103": 0.018333333333333333,
+        "vendorID_0171": 0.017916666666666668,
+        "vendorID_0151": 0.01625,
+        "vendorID_0104": 0.015833333333333335,
+        "vendorID_0106": 0.015833333333333335,
+        "vendorID_0196": 0.015,
+        "vendorID_0167": 0.015,
+        "vendorID_0110": 0.015,
+        "vendorID_0096": 0.014583333333333334,
+        "vendorID_0127": 0.012916666666666667,
+        "vendorID_0162": 0.0125,
+        "vendorID_0178": 0.01125,
+        "vendorID_0188": 0.010833333333333334,
+        "vendorID_0157": 0.010833333333333334,
+        "vendorID_0260": 0.010416666666666666,
+        "vendorID_0125": 0.010416666666666666,
+        "vendorID_0150": 0.01,
+        "vendorID_0123": 0.009583333333333333,
+        "vendorID_0159": 0.009583333333333333,
+        "vendorID_0179": 0.009166666666666667,
+        "vendorID_0382": 0.008333333333333333,
+        "vendorID_0372": 0.007916666666666667,
+        "__other__": 0.45999999999999996
+      }
+    },
+    "start_hour": {
+      "type": "numeric",
+      "edges": [
+        2.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        12.0,
+        13.0,
+        15.0,
+        16.0,
+        23.0
+      ],
+      "shares": [
+        0.08541666666666667,
+        0.15625,
+        0.07666666666666666,
+        0.09833333333333333,
+        0.165,
+        0.0625,
+        0.13833333333333334,
+        0.06708333333333333,
+        0.15041666666666667
+      ]
+    },
+    "start_dayofweek": {
+      "type": "numeric",
+      "edges": [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        6.0
+      ],
+      "shares": [
+        0.0033333333333333335,
+        0.3,
+        0.32208333333333333,
+        0.3745833333333333
+      ]
+    },
+    "first_activity": {
+      "type": "categorical",
+      "shares": {
+        "Create Purchase Order Item": 0.9620833333333333,
+        "Vendor creates invoice": 0.02,
+        "Create Purchase Requisition Item": 0.015,
+        "Vendor creates debit memo": 0.0016666666666666668,
+        "SRM: Created": 0.00125
+      }
+    },
+    "last_activity": {
+      "type": "categorical",
+      "shares": {
+        "Clear Invoice": 0.8204166666666667,
+        "Record Goods Receipt": 0.06833333333333333,
+        "Create Purchase Order Item": 0.04,
+        "Record Invoice Receipt": 0.024583333333333332,
+        "Delete Purchase Order Item": 0.020833333333333332,
+        "Change Price": 0.007916666666666667,
+        "Cancel Invoice Receipt": 0.00625,
+        "Change Delivery Indicator": 0.0025,
+        "Receive Order Confirmation": 0.0016666666666666668,
+        "SRM: Transfer Failed (E.Sys.)": 0.00125,
+        "Change Quantity": 0.00125,
+        "Set Payment Block": 0.00125,
+        "Record Service Entry Sheet": 0.00125,
+        "SRM: In Transfer to Execution Syst.": 0.0008333333333333334,
+        "Block Purchase Order Item": 0.0008333333333333334,
+        "Vendor creates debit memo": 0.0004166666666666667,
+        "Reactivate Purchase Order Item": 0.0004166666666666667
+      }
+    },
+    "unique_activity_count": {
+      "type": "numeric",
+      "edges": [
+        1.0,
+        3.0,
+        5.0,
+        6.0,
+        7.0,
+        20.0
+      ],
+      "shares": [
+        0.09791666666666667,
+        0.044583333333333336,
+        0.4008333333333333,
+        0.33666666666666667,
+        0.12
+      ]
+    },
+    "supplier_historical_breach_rate": {
+      "type": "numeric",
+      "edges": [
+        0.0,
+        0.9230769230769231,
+        0.938,
+        0.9794642857142858,
+        1.0
+      ],
+      "shares": [
+        0.09875,
+        0.009166666666666667,
+        0.19208333333333333,
+        0.7
+      ]
+    },
+    "supplier_historical_median_cycle_time": {
+      "type": "numeric",
+      "edges": [
+        0.0,
+        560.6166666666667,
+        1207.9833333333333,
+        1537.5,
+        2019.5083333333332,
+        2065.193333333333,
+        2320.524166666675,
+        2713.866666666667,
+        3044.116666666667,
+        11847.616666666667
+      ],
+      "shares": [
+        0.09958333333333333,
+        0.09708333333333333,
+        0.10166666666666667,
+        0.08958333333333333,
+        0.21208333333333335,
+        0.1,
+        0.08416666666666667,
+        0.08791666666666667,
+        0.12791666666666668
+      ]
+    }
+  }
 }

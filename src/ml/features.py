@@ -105,6 +105,14 @@ def _add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def raw_feature_frame(evaluated_cases: pd.DataFrame) -> pd.DataFrame:
+    """The model's inputs BEFORE one-hot encoding (one column per FEATURE_COLUMNS entry), same
+    derivation as build_features() -- what src/ml/feature_drift.py measures drift on, so a
+    supplier-mix shift shows up as ONE `supplier_id` drift number, not 486 dummy columns."""
+    df = _add_derived_features(evaluated_cases.copy())
+    return df[[c for c in FEATURE_COLUMNS if c in df.columns]].copy()
+
+
 def build_features(evaluated_cases: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     df = _add_derived_features(evaluated_cases.copy())
 

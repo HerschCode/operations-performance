@@ -14,6 +14,9 @@ Two independent triggers, either one sufficient:
    `min_new_data_pct` since the model was last trained -- a model trained on last
    month's data volume may be missing a meaningful fraction of recent process
    behavior once enough new cases have accumulated.
+3. Feature drift (PLAN.md Phase 4): at least config/drift.yaml's `retrain_min_alert_features`
+   model inputs have a PSI >= `psi_alert` against their training-time baseline
+   (src/ml/feature_drift.py). Optional -- pass the FeatureDriftReport in; None skips it.
 """
 import json
 from dataclasses import dataclass
@@ -42,6 +45,7 @@ def check_retrain_needed(
     max_days_since_training: int = 30,
     min_new_data_pct: float = 0.20,
     now: datetime | None = None,
+    feature_drift=None,
 ) -> RetrainRecommendation:
     metadata = load_model_metadata(meta_path)
     now = now or datetime.now(timezone.utc)
@@ -73,6 +77,10 @@ def check_retrain_needed(
             f"({trained_row_count} -> {current_case_count}), exceeds the "
             f"{min_new_data_pct:.0%} threshold"
         )
+
+    if feature_drift is not None and feature_drift.status == "alert":
+        top = ", ".join(f"{f.feature} (PSI {f.psi:.2f})" for f in feature_drift.features if f.status == "alert")
+        reasons.append(f"feature drift: {len(feature_drift.alert_features)} inputs past the PSI alert threshold -- {top}")
 
     return RetrainRecommendation(
         should_retrain=len(reasons) > 0, reasons=reasons,

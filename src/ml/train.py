@@ -100,6 +100,19 @@ def train_models(
     )
 
     results["_columns"] = X.columns.tolist()
+    # Training-time feature distributions for src/ml/feature_drift.py (PLAN.md Phase 4) -- fit on
+    # the TRAINING rows only, on the raw (pre-one-hot) inputs, and saved into the model's
+    # .meta.json by save_best_model() so drift is always measured against what THIS model saw.
+    try:
+        from src.ml.feature_drift import compute_baselines, load_drift_config
+        from src.ml.features import raw_feature_frame
+        _dcfg = load_drift_config()
+        results["_feature_baselines"] = compute_baselines(
+            raw_feature_frame(cases).loc[train_idx], _dcfg["n_bins"], _dcfg["max_categories"],
+        )
+    except Exception as exc:  # a drift-baseline failure must never block training
+        print(f"Feature baselines skipped: {exc}")
+        results["_feature_baselines"] = None
     results["_split"] = {
         "train_size": len(X_train),
         "test_size": len(X_test),
@@ -278,6 +291,7 @@ def save_best_model(results: dict, out_path: str | Path = "models/sla_risk_model
         "roc_auc": round(best["roc_auc"], 4),
         "train_risk_distribution": train_risk_dist,
         "train_breach_rate": train_breach_rate,
+        "feature_baselines": results.get("_feature_baselines"),
     }, indent=2))
 
     print(f"Saved best model ({best_name}, ROC-AUC={best['roc_auc']:.3f}) to {out_path}")
