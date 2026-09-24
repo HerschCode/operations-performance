@@ -24,7 +24,7 @@ from sqlalchemy import text
 
 from src.api.db import get_engine, load_cases
 from src.ml.retrain_trigger import check_retrain_needed
-from src.ml.features import build_features
+from src.ml.features import build_features, feature_source_is_dbt_marts, load_evaluated_cases_from_dbt_marts
 from src.ml.train import train_models, save_best_model
 from src.analytics.sla_analysis import load_sla_targets, evaluate_sla
 from src.observability.logging_config import configure_logging, get_logger
@@ -78,8 +78,15 @@ def main() -> int:
     for reason in result.reasons:
         print(f"  - {reason}")
 
-    cases = load_cases()
-    evaluated = evaluate_sla(cases, load_sla_targets())
+    if feature_source_is_dbt_marts():
+        # PLAN.md Phase 2: optional dbt_marts.fct_cases read path, results unchanged --
+        # verified against live data (see docs/dbt-project.md): 0 of 1,617,000 feature cells
+        # differ from the raw-events path below. Needs `dbt build` to have been run first.
+        logger.info("Reading case features from dbt_marts.fct_cases (FEATURE_SOURCE=dbt_marts)")
+        evaluated = load_evaluated_cases_from_dbt_marts(get_engine())
+    else:
+        cases = load_cases()
+        evaluated = evaluate_sla(cases, load_sla_targets())
     X, y = build_features(evaluated)
     train_results = train_models(X, y, evaluated)
     save_best_model(train_results)

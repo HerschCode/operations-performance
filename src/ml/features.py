@@ -1,3 +1,5 @@
+import os
+
 import pandas as pd
 
 # SQL source mapping (both SQL and Python consume the same case-level data):
@@ -119,6 +121,38 @@ def build_features(evaluated_cases: pd.DataFrame) -> tuple[pd.DataFrame, pd.Seri
 
     y = df["sla_breach"].astype(int)
     return X, y
+
+
+# PLAN.md Phase 2: "Have the ML feature builder optionally read from fct_cases (flag), results
+# unchanged." fct_cases (dbt/models/marts/fct_cases.sql) already carries every base column
+# evaluate_sla() + build_process_cases() would otherwise compute from raw events --
+# case_id/category/supplier_id/start_time/end_time/cycle_time_hours/sla_target_hours/
+# sla_breach/event_count/variant/variant_frequency/first_activity/last_activity -- so this
+# swaps only the SOURCE query, not _add_derived_features()/build_features() themselves, which
+# is what "results unchanged" actually requires: the same downstream code runs either way.
+# Not the default -- opt-in via FEATURE_SOURCE=dbt_marts, since running `dbt build` is an extra
+# step this project's existing pipeline (scripts/run_pipeline.py) doesn't require.
+USE_DBT_MARTS_ENV_VAR = "FEATURE_SOURCE"
+
+
+def feature_source_is_dbt_marts() -> bool:
+    return os.environ.get(USE_DBT_MARTS_ENV_VAR, "").strip().lower() == "dbt_marts"
+
+
+def load_evaluated_cases_from_dbt_marts(engine) -> pd.DataFrame:
+    """Reads dbt_marts.fct_cases instead of the raw-events path, with column names matching
+    what evaluate_sla() would have produced, so the caller can hand the result straight to
+    build_features() unmodified. `has_rework`/`rework_event_count` are dbt-only extras (harmless
+    -- build_features() only pulls columns it recognizes from FEATURE_COLUMNS)."""
+    return pd.read_sql(
+        """
+        select case_id, category, supplier_id, start_time, end_time, cycle_time_hours,
+               sla_target_hours, sla_breach, event_count, variant, variant_frequency,
+               first_activity, last_activity
+        from dbt_marts.fct_cases
+        """,
+        engine,
+    )
 
 
 if __name__ == "__main__":
