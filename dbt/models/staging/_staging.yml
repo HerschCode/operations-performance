@@ -1,0 +1,46 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: staging
+    tables:
+      - name: events
+  - name: raw_analytics
+    schema: analytics
+    tables:
+      - name: process_cases
+      - name: suppliers
+      - name: sla_rules
+
+models:
+  - name: stg_events
+    description: 1:1 with staging.events -- no filtering, no renaming beyond snake_case, which it already is.
+    columns:
+      - name: case_id
+        tests: [not_null]
+      - name: activity
+        tests: [not_null]
+      - name: timestamp
+        tests: [not_null]
+
+  - name: stg_process_cases
+    description: 1:1 with analytics.process_cases.
+    columns:
+      - name: case_id
+        tests: [unique, not_null]
+      - name: cycle_time_hours
+        tests: [not_null]
+
+  - name: stg_suppliers
+    description: 1:1 with analytics.suppliers.
+    columns:
+      - name: supplier_id
+        tests: [unique, not_null]
+
+  - name: stg_sla_rules
+    description: 1:1 with analytics.sla_rules.
+    columns:
+      - name: category
+        tests: [unique, not_null]
+      - name: target_hours
+        tests: [not_null]
