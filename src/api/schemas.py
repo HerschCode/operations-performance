@@ -135,5 +135,21 @@ class FeatureDriftReportSchema(BaseModel):
     note: str | None = None
 
 
+class InterventionCreate(BaseModel):
+    case_id: str
+    intervention_type: str | None = None   # defaults to config/interventions.yaml default_type
+    risk_at_intervention: float            # model breach probability when the action was taken
+    cost: float | None = None              # defaults to the type's configured cost
+    breached_after: bool | None = None
+    notes: str | None = None
+
+
+class InterventionCreated(BaseModel):
+    intervention_id: int
+    case_id: str
+    intervention_type: str
+    cost: float
+
+
 class ErrorResponse(BaseModel):
     detail: str

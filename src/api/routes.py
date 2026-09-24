@@ -2,8 +2,8 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import PlainTextResponse
 import pandas as pd
 
-from src.api.db import load_events, load_cases, check_connection, get_engine
-from src.api.auth import require_api_key
+from src.api.db import load_events, load_cases, check_connection, get_engine, get_write_engine
+from src.api.auth import require_api_key, require_role
 from src.api.metrics import PREDICTIONS_TOTAL, render_metrics
 from src.api.schemas import (
     HealthResponse,
@@ -24,6 +24,8 @@ from src.api.schemas import (
     PredictionDriftReport,
     FeatureDriftRow,
     FeatureDriftReportSchema,
+    InterventionCreate,
+    InterventionCreated,
 )
 from src.analytics.cycle_time import cycle_time_percentiles, stage_summary
 from src.analytics.bottlenecks import identify_bottlenecks
@@ -537,3 +539,52 @@ def sla_risk_distribution():
         for level in ["LOW", "MEDIUM", "HIGH"]
     ]
     return SlaRiskDistributionResponse(total_cases_scored=len(predictions), buckets=buckets)
+
+
+@router.post("/interventions", response_model=InterventionCreated, status_code=201,
+             dependencies=[Depends(require_role("admin"))])
+def create_intervention(body: InterventionCreate):
+    """Log an action taken on a flagged case (admin role). Validated against
+    config/interventions.yaml; the case must exist; one row per (case, type)."""
+    from sqlalchemy import text
+    from sqlalchemy.exc import IntegrityError
+    from src.roi.ledger import InterventionValidationError, load_policy, validate_intervention
+
+    try:
+        row = validate_intervention(body.model_dump(), load_policy())
+    except InterventionValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    with get_engine().connect() as conn:
+        exists = conn.execute(text("SELECT 1 FROM analytics.process_cases WHERE case_id = :c"),
+                              {"c": row["case_id"]}).first()
+    if not exists:
+        raise HTTPException(status_code=404, detail=f"No case found with case_id '{row['case_id']}'")
+    try:
+        with get_write_engine().begin() as conn:
+            new_id = conn.execute(text(
+                "INSERT INTO analytics.interventions (case_id, intervention_type, risk_at_intervention, cost, "
+                "breached_after, notes) VALUES (:case_id, :intervention_type, :risk_at_intervention, :cost, "
+                ":breached_after, :notes) RETURNING intervention_id"), row).scalar()
+    except IntegrityError:
+        raise HTTPException(status_code=409, detail="This case already has an intervention of that type")
+    return InterventionCreated(intervention_id=new_id, case_id=row["case_id"],
+                               intervention_type=row["intervention_type"], cost=row["cost"])
+
+
+@router.get("/roi/summary")
+def roi_summary_endpoint():
+    """ROI of the intervention ledger, simulated and logged rows reported separately. Effect sizes
+    are ASSUMPTIONS (config/interventions.yaml) -- the response says so in `label`."""
+    from src.roi.ledger import load_policy, roi_summary
+
+    try:
+        rows = pd.read_sql(
+            "SELECT intervention_type, risk_at_intervention, cost, breached_after, is_simulated "
+            "FROM analytics.interventions", get_engine()).to_dict(orient="records")
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"intervention ledger unavailable: {str(exc)[:120]}")
+    for r in rows:  # NaN/None -> None for the outcome column
+        if r["breached_after"] is None or pd.isna(r["breached_after"]):
+            r["breached_after"] = None
+    return roi_summary(rows, load_policy())

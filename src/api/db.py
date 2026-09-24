@@ -37,6 +37,25 @@ def get_engine() -> Engine:
     return _engine
 
 
+_write_engine: Engine | None = None
+
+
+def get_write_engine() -> Engine:
+    """Separate engine for the one write path the API has (POST /interventions). The normal engine
+    prefers the SELECT-only ops_api_reader role, which cannot INSERT by design; a ledger write needs
+    a role with INSERT on analytics.interventions -- LEDGER_DB_USER/LEDGER_DB_PASSWORD, falling back
+    to DB_USER/DB_PASSWORD for simple local/dev setups."""
+    global _write_engine
+    if _write_engine is None:
+        user = os.environ.get("LEDGER_DB_USER", os.environ["DB_USER"])
+        password = os.environ.get("LEDGER_DB_PASSWORD", os.environ["DB_PASSWORD"])
+        url = (f"postgresql+psycopg2://{user}:{password}"
+               f"@{os.environ['DB_HOST']}:{os.environ['DB_PORT']}/{os.environ['DB_NAME']}"
+               f"?sslmode={os.environ.get('DB_SSLMODE', 'prefer')}")
+        _write_engine = create_engine(url, pool_size=2, pool_timeout=30, pool_pre_ping=True)
+    return _write_engine
+
+
 def load_events() -> pd.DataFrame:
     engine = get_engine()
     df = pd.read_sql("SELECT * FROM staging.events", engine)

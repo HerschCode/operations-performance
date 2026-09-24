@@ -2,6 +2,16 @@
 
 ## Unreleased -- Post-v1.0.0 upgrade work
 
+### Phase 6: Intervention ledger + ROI simulation (2026-09-24)
+- `analytics.interventions` table (migration 005), `config/interventions.yaml` policy, `src/roi/ledger.py`.
+- New `POST /interventions` (admin, validated; separate write engine since the API's default DB
+  role is read-only) and `GET /roi/summary` (simulated vs logged kept apart, SIMULATION label +
+  assumptions in every response). Additive; no existing endpoint changed.
+- `scripts/simulate_interventions.py`: policy replay over the held-out window (120 cases; break-even
+  effect 6.25%). Effects are assumptions, not measured uplift -- `docs/uplift-method.md`.
+- Found: live `analytics.process_cases` has no PK (pipeline's to_sql replace drops it), so the ledger
+  has no FK and the API checks case existence instead.
+
 ### Phase 5: Sequence model vs prefix RF (2026-09-24)
 - `src/ml/sequence_model.py` (GRU/LSTM over first k events) + `scripts/sequence_model_bpi2019.py`
   (k in 1,2,3,5; p50/p75 targets; 3 seeds; ROC-AUC/PR-AUC/Brier/CPU latency; MLflow-logged);
