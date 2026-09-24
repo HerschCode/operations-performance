@@ -14,18 +14,22 @@ def get_engine():
     return create_engine(url)
 
 
-def run_sql_file(engine, path: Path):
+def split_sql_statements(sql: str) -> list[str]:
     # Real bug, found by running this against 002_create_indexes.sql after adding a comment
     # that happened to contain a semicolon: naively splitting the raw file text on ";" also
     # splits INSIDE "--" line comments, producing a comment-only chunk with no actual SQL in
     # it. Postgres (via psycopg2) doesn't silently no-op that -- it raises "can't execute an
     # empty query". Fixed by stripping "--" line comments before splitting, so only real
-    # semicolons (statement terminators) are split on. Sufficient for this project's schema
+    # semicolons (statement terminators) are split on. Sufficient for this project's SQL
     # files (no "--" appears inside a string literal in any of them); not a general SQL
-    # tokenizer, and doesn't need to be one here.
-    sql = path.read_text()
+    # tokenizer, and doesn't need to be one here. Shared with scripts/run_sql_analysis.py,
+    # which also needs to split multi-statement analysis files.
     without_comments = "\n".join(line.split("--", 1)[0] for line in sql.splitlines())
-    statements = [s.strip() for s in without_comments.split(";") if s.strip()]
+    return [s.strip() for s in without_comments.split(";") if s.strip()]
+
+
+def run_sql_file(engine, path: Path):
+    statements = split_sql_statements(path.read_text())
     with engine.begin() as conn:
         for stmt in statements:
             conn.execute(text(stmt))
