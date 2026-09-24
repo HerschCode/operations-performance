@@ -33,7 +33,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install schema + seed dependencies
-        run: pip install sqlalchemy psycopg2-binary
+        run: pip install sqlalchemy psycopg2-binary python-dotenv
 
       - name: Create schema and seed the CI database
         env:
