@@ -2,6 +2,40 @@
 
 ## Unreleased -- Post-v1.0.0 upgrade work
 
+### Phase 2: dbt transformation layer (2026-09-24)
+No orchestration/transformation layer existed -- `sql/analysis/*.sql` and the Python analytics
+were the only consumers of raw data, each re-deriving stage durations and rework detection
+independently. Added `dbt/`:
+
+- **staging** (`stg_events`, `stg_process_cases`, `stg_suppliers`, `stg_sla_rules`): 1:1 with
+  raw tables. **intermediate** (`int_stage_durations`, `int_case_rework`, `int_case_sla_scored`):
+  the dbt-model versions of `bottlenecks.sql`/`rework_detection.sql`'s logic, reused as real
+  models. **marts** (`fct_cases`, `dim_supplier`, `dim_category`, `mart_sla_daily`).
+  `dim_category`, not `dim_business_unit` -- no such column exists in this data.
+- `unique`/`not_null`/`relationships` tests plus one custom singular test
+  (`assert_no_negative_stage_durations.sql`). `dbt build` run live: 30 pass, 0 errors, 2 warnings.
+- **A real bug found by running `dbt build`, not by inspection:** a comment in `stg_events.sql`
+  used a literal `ref()` call as a prose example, which dbt's Jinja renderer evaluated as a real
+  self-referencing dependency, failing every build with "Found a cycle:
+  model.operations_performance.stg_events". Fixed by describing the pattern without writing a
+  literal Jinja call to the model's own name inside its own file.
+- **Two real data-quality findings, surfaced by the `relationships` tests' warning counts, not
+  by inspection:** `analytics.suppliers` is completely empty (0 rows; confirmed unused by any
+  live code, not a production bug); `analytics.sla_rules` has only 3 categories against 10+ real
+  ones in `process_cases.category`, so 2,972 of 3,000 cases fall back to the default 240h SLA
+  target rather than a matched one -- a pre-existing gap in the Python pipeline too, made visible
+  as a number by dbt's test rather than introduced by it. Full writeup:
+  [`docs/dbt-project.md`](docs/dbt-project.md).
+- `dbt docs generate` + a live `dbt docs serve` run, lineage graph captured from the real running
+  page (canvas pixels POSTed to a local save server, not hand-typed base64 -- an earlier attempt
+  to manually transcribe the ~30KB image data produced a corrupted file, caught by loading it
+  back before committing): [`docs/dbt-lineage-graph.png`](docs/dbt-lineage-graph.png).
+- `src/ml/features.py::load_evaluated_cases_from_dbt_marts()`: optional (`FEATURE_SOURCE=dbt_marts`)
+  read path from `fct_cases`, feeding the same unmodified `build_features()`. Parity verified
+  against live data with rows aligned by `case_id`.
+- `.github/workflows/dbt.yml`: `dbt build` against a real Postgres 16 service container on every
+  push, seeded via the same `scripts/setup_database.py` schema plus a small fixture.
+
 ### Phase 1: Real analytical SQL (2026-09-24)
 `sql/analysis/*.sql` was thin -- `bottlenecks.sql` was the only file using a window function,
 despite docs claiming LAG/LEAD/RANK/rolling metrics (v1.0.0's own "known limitations" already
