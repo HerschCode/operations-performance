@@ -137,6 +137,39 @@ def test_pipeline_runs_endpoint(mock_get_engine, mock_read_sql):
     assert body[0]["run_id"] == 1
 
 
+@patch("src.api.routes.pd.read_sql")
+@patch("src.api.routes.get_engine")
+def test_data_quality_endpoint_survives_empty_predictions_table(mock_get_engine, mock_read_sql):
+    """Real crash, found live: analytics.sla_predictions had 0 rows in production, so
+    'SELECT ... SUM(...)/COUNT(*) ...' returns SQL NULL, and predictions.high_risk_rate's
+    fmt/warn_fn/fail_fn lambdas did float(None), an unhandled TypeError -- the whole endpoint
+    returned overall='fail' with a raw exception message instead of reporting cleanly.
+    Reproduces the exact 0-rows scenario and asserts it no longer crashes."""
+    def fake_read_sql(query, engine, **kwargs):
+        # Order matters: the high_risk_rate query also contains "COUNT" (COUNT(*) in its
+        # denominator), so the more specific risk_level pattern must be checked first, or it
+        # falls into the row_count branch below and the regression this test exists to catch
+        # goes unexercised.
+        if "risk_level = 'HIGH'" in query:
+            return pd.DataFrame([[None]])  # predictions.high_risk_rate: 0/0 -> NULL
+        if "sla_predictions" in query and "COUNT" in query:
+            return pd.DataFrame([[0]])  # predictions.row_count
+        if "MAX(timestamp)" in query:
+            return pd.DataFrame([[pd.Timestamp("2019-04-30", tz="UTC")]])
+        if "AVG(c.n)" in query:
+            return pd.DataFrame([[3.0]])
+        return pd.DataFrame([[100]])  # every other count/rate check
+
+    mock_read_sql.side_effect = fake_read_sql
+    response = client.get("/observability/data-quality")
+    assert response.status_code == 200
+    checks = {c["name"]: c for c in response.json()["checks"]}
+    assert checks["predictions.high_risk_rate"]["status"] != "fail" or \
+        "TypeError" not in str(checks["predictions.high_risk_rate"].get("detail", ""))
+    assert checks["predictions.high_risk_rate"]["value"] == "n/a (no predictions yet)"
+    assert checks["predictions.row_count"]["status"] == "fail"  # 0 rows really is a fail, honestly
+
+
 def test_request_logging_middleware_adds_request_id_header():
     response = client.get("/health")
     assert "X-Request-ID" in response.headers

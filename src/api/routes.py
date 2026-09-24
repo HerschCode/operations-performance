@@ -283,21 +283,21 @@ def data_quality():
     # ── Events ──
     checks.append(_check(
         "events.row_count",
-        "SELECT COUNT(*) FROM analytics.process_events",
+        "SELECT COUNT(*) FROM staging.events",
         warn_fn=lambda n: n < 100,
         fail_fn=lambda n: n == 0,
         fmt=lambda n: f"{int(n):,} rows",
     ))
     checks.append(_check(
         "events.null_case_id_rate",
-        "SELECT ROUND(100.0 * SUM(CASE WHEN case_id IS NULL THEN 1 ELSE 0 END) / COUNT(*), 2) FROM analytics.process_events",
+        "SELECT ROUND(100.0 * SUM(CASE WHEN case_id IS NULL THEN 1 ELSE 0 END) / COUNT(*), 2) FROM staging.events",
         warn_fn=lambda r: r > 0.5,
         fail_fn=lambda r: r > 5.0,
         fmt=lambda r: f"{float(r):.2f}%",
     ))
     checks.append(_check(
         "events.null_activity_rate",
-        "SELECT ROUND(100.0 * SUM(CASE WHEN activity IS NULL THEN 1 ELSE 0 END) / COUNT(*), 2) FROM analytics.process_events",
+        "SELECT ROUND(100.0 * SUM(CASE WHEN activity IS NULL THEN 1 ELSE 0 END) / COUNT(*), 2) FROM staging.events",
         warn_fn=lambda r: r > 0.1,
         fail_fn=lambda r: r > 1.0,
         fmt=lambda r: f"{float(r):.2f}%",
@@ -306,7 +306,7 @@ def data_quality():
     # ── Timestamp freshness ──
     try:
         ts_df = pd.read_sql(
-            "SELECT MAX(timestamp) AS latest FROM analytics.process_events", engine
+            "SELECT MAX(timestamp) AS latest FROM staging.events", engine
         )
         latest = pd.to_datetime(ts_df.iloc[0, 0])
         if latest.tzinfo is None:
@@ -335,7 +335,7 @@ def data_quality():
     ))
     checks.append(_check(
         "cases.avg_events_per_case",
-        "SELECT ROUND(AVG(c.n), 1) FROM (SELECT case_id, COUNT(*) AS n FROM analytics.process_events GROUP BY case_id) c",
+        "SELECT ROUND(AVG(c.n), 1) FROM (SELECT case_id, COUNT(*) AS n FROM staging.events GROUP BY case_id) c",
         warn_fn=lambda v: v < 2,
         fail_fn=lambda v: v < 1,
         fmt=lambda v: f"{float(v):.1f}",
@@ -352,9 +352,14 @@ def data_quality():
     checks.append(_check(
         "predictions.high_risk_rate",
         "SELECT ROUND(100.0 * SUM(CASE WHEN risk_level = 'HIGH' THEN 1 ELSE 0 END) / COUNT(*), 1) FROM analytics.sla_predictions",
-        warn_fn=lambda r: r > 80,
-        fail_fn=lambda r: r > 95,
-        fmt=lambda r: f"{float(r):.1f}%",
+        # Real crash, found live: 0 rows in analytics.sla_predictions makes the SQL's own
+        # division 0/0 = NULL, and float(None) raised an unhandled TypeError -- every warn_fn/
+        # fail_fn/fmt lambda here assumed a real number and crashed instead of reporting "no
+        # predictions yet" cleanly. Guarded explicitly rather than relying on _check's broad
+        # except to paper over it with a generic "error" status.
+        warn_fn=lambda r: r is not None and r > 80,
+        fail_fn=lambda r: r is not None and r > 95,
+        fmt=lambda r: f"{float(r):.1f}%" if r is not None else "n/a (no predictions yet)",
     ))
 
     overall = "pass"
