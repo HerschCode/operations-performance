@@ -2,6 +2,42 @@
 
 ## Unreleased -- Post-v1.0.0 upgrade work
 
+### Phase 3: Prefect orchestration (2026-09-24)
+No orchestration existed beyond a bare GitHub Actions cron calling one script
+(`retrain-check.yml`). Added `flows/pipeline_flow.py`: ingest -> validate -> dbt build -> train
+-> evaluate/register -> report, each step reusing existing, already-tested code rather than
+duplicating it (`scripts/run_pipeline.py::run()`, `src/cleaning/data_quality.py`, Phase 2's
+`dbt build`, `src/ml/train.py::train_models()`/`save_best_model()`).
+
+- **Register only if the candidate beats the deployed model, verified against a real live run,
+  not just asserted:** `config/orchestration.yaml`'s `min_roc_auc_improvement` (0.005) gates
+  `save_best_model()`. First real end-to-end run: candidate random_forest scored 0.9888 vs the
+  already-deployed model's 0.9857 (+0.0031, below the margin) -- correctly kept the deployed
+  model rather than replacing it on a difference too small to trust, matching the paired
+  significance finding in `docs/statistical-significance.md`.
+- **A real integration conflict, found by running the flow, not by inspection:**
+  `ingest_task`'s raw-table replace (`DROP TABLE staging.events`) failed once Phase 2's dbt
+  views existed on top of it -- "other objects depend on it". Fixed by sequencing: `ingest_task`
+  now drops the dbt-managed schemas first, and `dbt_build_task` (which runs immediately after in
+  the same flow) fully rebuilds them.
+- **Acceptance criterion proven directly, not just asserted:** "a failed DQ check stops the flow
+  before training" -- `tests/test_pipeline_flow.py::test_failed_dq_check_stops_the_flow_before_training`
+  runs the real flow function with `validate_task` raising, and asserts
+  `dbt_build_task`/`train_task`/`evaluate_and_register_task`/`report_task` are never called.
+- A real Prefect gotcha found while writing tests: `get_run_logger()` needs an active run
+  context and raises `MissingContextError` when a task's `.fn` is called directly (the standard
+  way to unit-test Prefect tasks without the full runtime) -- fixed with a small stdlib-logger
+  fallback, `_logger()`.
+- `requirements-orchestration.txt`: dbt-core/dbt-postgres/prefect kept separate from
+  `requirements.txt` so the deployed API image doesn't pull in either toolchain's dependency
+  tree. `.github/workflows/test.yml` installs `prefect` alone (not the full dbt toolchain) since
+  `tests/test_pipeline_flow.py` only imports it at module level; dbt itself is invoked as a
+  subprocess inside a task body, never imported directly.
+- Production schedule documented, not deployed (needs a persistent Prefect server, out of scope
+  for this project's free-tier, no-server infrastructure): daily 07:00 UTC, one hour after
+  `retrain-check.yml`'s existing 06:00 UTC cron. Full writeup:
+  [`docs/orchestration.md`](docs/orchestration.md).
+
 ### Phase 2: dbt transformation layer (2026-09-24)
 No orchestration/transformation layer existed -- `sql/analysis/*.sql` and the Python analytics
 were the only consumers of raw data, each re-deriving stage durations and rework detection

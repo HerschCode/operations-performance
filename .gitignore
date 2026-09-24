@@ -24,3 +24,6 @@ mlruns/
 
 # External datasets are downloaded on demand (licence terms apply), never committed
 data/external/
+
+# Flow run reports -- generated, not committed
+reports/
