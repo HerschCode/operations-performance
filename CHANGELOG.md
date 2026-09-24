@@ -2,6 +2,14 @@
 
 ## Unreleased -- Post-v1.0.0 upgrade work
 
+### Phase 5: Sequence model vs prefix RF (2026-09-24)
+- `src/ml/sequence_model.py` (GRU/LSTM over first k events) + `scripts/sequence_model_bpi2019.py`
+  (k in 1,2,3,5; p50/p75 targets; 3 seeds; ROC-AUC/PR-AUC/Brier/CPU latency; MLflow-logged);
+  `requirements-sequence.txt`; tests skip if torch is absent.
+- Result is mixed and reported as such: GRU beats the RF by +0.05-0.07 ROC-AUC at p75 (k>=2) but
+  loses at p50 (up to -0.08) and has worse Brier at p75 k<=2; absolute 0.74-0.76. **RF kept**, nothing
+  deployed. See `docs/sequence-model.md`.
+
 ### Phase 4: Feature drift + retrain loop (2026-09-24)
 - `src/ml/feature_drift.py`: per-feature PSI on raw inputs, baselines saved in model metadata at
   train time (`config/drift.yaml` thresholds). `scripts/backfill_feature_baselines.py` added them to
