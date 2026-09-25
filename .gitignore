@@ -30,3 +30,4 @@ reports/*
 !reports/roi_sensitivity.json
 !reports/sequence_model_results.json
 !reports/calibration_comparison.json
+!reports/uplift_validation.json

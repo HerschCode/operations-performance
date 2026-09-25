@@ -149,6 +149,9 @@ class InterventionCreated(BaseModel):
     case_id: str
     intervention_type: str
     cost: float
+    assignment: str = "treat"        # "treat" or "holdout" (randomized; do NOT act on holdout cases)
+    action_required: bool = True
+    experiment_id: str | None = None
 
 
 class ErrorResponse(BaseModel):

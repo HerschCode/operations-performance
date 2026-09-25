@@ -140,3 +140,51 @@ def test_roi_summary_endpoint_includes_sensitivity():
     with patch("src.api.routes.pd.read_sql", return_value=df), patch("src.api.routes.get_engine"):
         body = client.get("/roi/summary").json()
     assert set(body["sensitivity"]["scenarios"]) >= {"p75", "configured"}
+
+
+def _first_case(target):
+    from src.roi.ledger import assign_case
+    policy = load_policy()
+    return next(f"C{i}" for i in range(1000) if assign_case(f"C{i}", policy)[0] == target)
+
+
+def test_post_respects_holdout_assignment_and_records_zero_cost():
+    cid = _first_case("holdout")
+    with _engines():
+        r = client.post("/interventions", json={"case_id": cid, "risk_at_intervention": 0.9})
+    body = r.json()
+    assert r.status_code == 201 and body["assignment"] == "holdout" and body["action_required"] is False
+    assert body["cost"] == 0.0 and body["experiment_id"]
+
+
+def test_post_treat_assignment_requires_action():
+    cid = _first_case("treat")
+    with _engines():
+        body = client.post("/interventions", json={"case_id": cid, "risk_at_intervention": 0.9}).json()
+    assert body["assignment"] == "treat" and body["action_required"] is True and body["cost"] > 0
+
+
+def test_holdout_rows_carry_no_cost_or_benefit_in_roi_but_feed_the_experiment_block():
+    p = load_policy()
+    eid = p["experiment"]["id"]
+    rows = [{"intervention_type": "expedite_approval", "risk_at_intervention": 0.9, "cost": 25.0,
+             "breached_after": i % 4 == 0, "is_simulated": False, "assignment": "treat", "experiment_id": eid}
+            for i in range(60)]
+    rows += [{"intervention_type": "expedite_approval", "risk_at_intervention": 0.9, "cost": 0.0,
+              "breached_after": i % 2 == 0, "is_simulated": False, "assignment": "holdout", "experiment_id": eid}
+             for i in range(60)]
+    s = roi_summary(rows, p)
+    assert s["logged"]["interventions"] == 60 and s["logged"]["total_cost"] == 60 * 25.0
+    e = s["experiment"]
+    assert e["treated"]["breach_rate"] == 0.25 and e["holdout"]["breach_rate"] == 0.5
+    assert e["measured_uplift"]["breach_reduction"] == pytest.approx(0.25)
+    lo, hi = e["measured_uplift"]["ci95"]
+    assert lo < 0.25 < hi
+
+
+def test_experiment_block_says_not_enough_data_below_thresholds_and_ignores_simulated_rows():
+    p = load_policy()
+    rows = [{"intervention_type": "expedite_approval", "risk_at_intervention": 0.9, "cost": 25.0, "breached_after": True,
+             "is_simulated": True, "assignment": "treat", "experiment_id": None}] * 200
+    e = roi_summary(rows, p)["experiment"]
+    assert e["measured_uplift"] is None and e["treated"]["cases"] == 0

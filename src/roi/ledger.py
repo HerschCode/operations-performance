@@ -13,7 +13,8 @@ import yaml
 
 DEFAULT_POLICY_PATH = Path(__file__).resolve().parents[2] / "config" / "interventions.yaml"
 SIMULATION_LABEL = ("SIMULATION: effect sizes and costs are assumptions from config/interventions.yaml, "
-                    "not measured uplift. Nothing here was estimated from a randomized experiment.")
+                    "not measured uplift. The separate `experiment` block reports measured uplift, but only once randomized "
+                    "holdout outcomes exist.")
 
 
 class InterventionValidationError(ValueError):
@@ -41,6 +42,45 @@ def validate_intervention(payload: dict, policy: dict) -> dict:
     return {"case_id": str(payload["case_id"]).strip(), "intervention_type": itype,
             "risk_at_intervention": float(risk), "cost": float(cost),
             "breached_after": payload.get("breached_after"), "notes": payload.get("notes")}
+
+
+def assign_case(case_id: str, policy: dict) -> tuple[str, str]:
+    """(assignment, experiment_id) for a case under the configured randomized experiment."""
+    from src.roi.randomizer import assign
+
+    exp = policy["experiment"]
+    return assign(case_id, exp["id"], exp["holdout_share"]), exp["id"]
+
+
+def _arm_stats(rows: list[dict]) -> dict:
+    known = [r for r in rows if r.get("breached_after") is not None]
+    n_b = sum(1 for r in known if r["breached_after"])
+    return {"cases": len(rows), "outcomes_known": len(known),
+            "breach_rate": round(n_b / len(known), 4) if known else None}
+
+
+def experiment_summary(rows: list[dict], policy: dict) -> dict:
+    """Measured uplift from the randomized arms: breach rate of holdout minus breach rate of treated (a
+    positive number = the action reduced breaches), with a 95% CI. Only reported with >= 30 known outcomes in
+    each arm; before that the honest answer is 'not enough data'. Rows without an experiment_id (simulated
+    replays, pre-experiment rows) are excluded -- they were not randomized."""
+    exp = policy.get("experiment")
+    if not exp:
+        return None
+    mine = [r for r in rows if r.get("experiment_id") == exp["id"] and not r.get("is_simulated")]
+    treat = [r for r in mine if r.get("assignment", "treat") == "treat"]
+    hold = [r for r in mine if r.get("assignment") == "holdout"]
+    t, h = _arm_stats(treat), _arm_stats(hold)
+    out = {"experiment_id": exp["id"], "holdout_share": exp["holdout_share"], "treated": t, "holdout": h,
+           "measured_uplift": None, "note": "Randomized experiment; needs >= 30 known outcomes per arm."}
+    if t["outcomes_known"] >= 30 and h["outcomes_known"] >= 30:
+        import math
+
+        n_t, n_h = t["outcomes_known"], h["outcomes_known"]
+        d = h["breach_rate"] - t["breach_rate"]
+        se = math.sqrt(t["breach_rate"] * (1 - t["breach_rate"]) / n_t + h["breach_rate"] * (1 - h["breach_rate"]) / n_h)
+        out["measured_uplift"] = {"breach_reduction": round(d, 4), "ci95": [round(d - 1.96 * se, 4), round(d + 1.96 * se, 4)]}
+    return out
 
 
 def _bucket(rows: list[dict], policy: dict) -> dict:
@@ -74,8 +114,10 @@ def break_even_effect(rows: list[dict], policy: dict) -> float | None:
 
 
 def roi_summary(rows: list[dict], policy: dict) -> dict:
-    sim = [r for r in rows if r.get("is_simulated")]
-    real = [r for r in rows if not r.get("is_simulated")]
+    # holdout rows are cases deliberately NOT treated: they carry no cost or benefit, only outcomes
+    treated = [r for r in rows if r.get("assignment", "treat") == "treat"]
+    sim = [r for r in treated if r.get("is_simulated")]
+    real = [r for r in treated if not r.get("is_simulated")]
     return {
         "label": SIMULATION_LABEL,
         "assumptions": {"breach_cost": policy["breach_cost"], "capacity_pct": policy["capacity_pct"],
@@ -83,6 +125,7 @@ def roi_summary(rows: list[dict], policy: dict) -> dict:
         "simulated": _bucket(sim, policy),
         "logged": _bucket(real, policy),
         "break_even_effect_simulated": break_even_effect(sim, policy),
+        "experiment": experiment_summary(rows, policy),
     }
 
 

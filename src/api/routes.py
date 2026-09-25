@@ -548,10 +548,11 @@ def create_intervention(body: InterventionCreate):
     config/interventions.yaml; the case must exist; one row per (case, type)."""
     from sqlalchemy import text
     from sqlalchemy.exc import IntegrityError
-    from src.roi.ledger import InterventionValidationError, load_policy, validate_intervention
+    from src.roi.ledger import InterventionValidationError, assign_case, load_policy, validate_intervention
 
+    policy = load_policy()
     try:
-        row = validate_intervention(body.model_dump(), load_policy())
+        row = validate_intervention(body.model_dump(), policy)
     except InterventionValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -560,16 +561,23 @@ def create_intervention(body: InterventionCreate):
                               {"c": row["case_id"]}).first()
     if not exists:
         raise HTTPException(status_code=404, detail=f"No case found with case_id '{row['case_id']}'")
+    # Randomized holdout: the arm depends only on (experiment id, case id), never on risk or on the caller.
+    row["assignment"], row["experiment_id"] = assign_case(row["case_id"], policy)
+    if row["assignment"] == "holdout":
+        row["cost"] = 0.0          # no action is taken on a holdout case; it is logged for its outcome only
     try:
         with get_write_engine().begin() as conn:
             new_id = conn.execute(text(
                 "INSERT INTO analytics.interventions (case_id, intervention_type, risk_at_intervention, cost, "
-                "breached_after, notes) VALUES (:case_id, :intervention_type, :risk_at_intervention, :cost, "
-                ":breached_after, :notes) RETURNING intervention_id"), row).scalar()
+                "breached_after, notes, assignment, experiment_id) VALUES (:case_id, :intervention_type, "
+                ":risk_at_intervention, :cost, :breached_after, :notes, :assignment, :experiment_id) "
+                "RETURNING intervention_id"), row).scalar()
     except IntegrityError:
         raise HTTPException(status_code=409, detail="This case already has an intervention of that type")
     return InterventionCreated(intervention_id=new_id, case_id=row["case_id"],
-                               intervention_type=row["intervention_type"], cost=row["cost"])
+                               intervention_type=row["intervention_type"], cost=row["cost"],
+                               assignment=row["assignment"], action_required=row["assignment"] == "treat",
+                               experiment_id=row["experiment_id"])
 
 
 @router.get("/roi/summary")
@@ -580,7 +588,7 @@ def roi_summary_endpoint():
 
     try:
         rows = pd.read_sql(
-            "SELECT intervention_type, risk_at_intervention, cost, breached_after, is_simulated "
+            "SELECT intervention_type, risk_at_intervention, cost, breached_after, is_simulated, assignment, experiment_id "
             "FROM analytics.interventions", get_engine()).to_dict(orient="records")
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"intervention ledger unavailable: {str(exc)[:120]}")

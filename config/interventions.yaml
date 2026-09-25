@@ -22,3 +22,11 @@ types:
 
 # Type the simulation applies when none is specified.
 default_type: expedite_approval
+
+# Randomized holdout (Upgrade 3). POST /interventions assigns each case to treat or holdout with
+# src/roi/randomizer.py (deterministic hash of experiment id + case id). Holdout cases are NOT treated;
+# comparing their outcomes with the treated arm is what turns assumed effects into measured uplift.
+# Change `id` to start a new experiment (re-randomizes every case).
+experiment:
+  id: "sla-triage-2026-q4"
+  holdout_share: 0.20
