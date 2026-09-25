@@ -26,8 +26,8 @@ For each treated case, the assumed relative effect *e* of its type cuts breach p
   This is the honest headline, because it doesn't depend on a guessed effect.
 
 ## Live simulation result
-120 interventions, cost 3,000, 18.0 avoided breaches by model risk (17.4 by observed outcomes), net
-+4,200 (+3,960). **Break-even effect: 6.25%** — under these assumed costs and a 400 breach cost, the
+120 interventions, cost 3,000, 17.96 avoided breaches by model risk (18.0 by observed outcomes), net
++4,183 (+4,200). (Rerun after the calibration fix; earlier: 18.0 / 17.4, +4,200 / +3,960.) **Break-even effect: 6.25%** — under these assumed costs and a 400 breach cost, the
 action pays for itself if it prevents more than ~1 breach in 16 among treated cases.
 
 ## Why this is not uplift, and what real uplift needs
@@ -37,10 +37,9 @@ action pays for itself if it prevents more than ~1 breach in 16 among treated ca
 - **The counterfactual is missing.** A real estimate needs a randomized holdout (treat a random share of
   flagged cases, leave the rest), then compare breach rates, ideally with an uplift model (two-model or
   causal-forest) trained on that data. The ledger (`applied_at`, `breached_after`) is shaped to collect it.
-- **Risk scores are the served model's probabilities** -- the isotonic-calibrated random forest
-  (`bundle["model"]`, a `CalibratedClassifierCV`; the raw forest is kept separately as
-  `uncalibrated_model` and is not used). The calibration layer was fit on the training split, the same rows
-  the forest saw, so it can still be over-confident on new data. The configured SLA targets make ~94%
+- **Risk scores are the served model's probabilities** -- the sigmoid-calibrated random forest
+  (`bundle["model"]`, a `HeldOutCalibratedClassifier`; calibrated on a held-out temporal slice, see
+  [`calibration.md`](calibration.md)). The configured SLA targets make ~94%
   of cases breach, so the top-20% by risk are nearly all ≈1.0 risk. Consequently "by model risk" and "by
   observed outcomes" nearly agree here, and the ranking adds little over acting on any 20% of cases. On a
   less degenerate target (see [`less-degenerate-target.md`](less-degenerate-target.md)) triage would matter more.
@@ -56,39 +55,41 @@ Outcomes are the cases' actual breaches; only the *effect* is assumed. **SIMULAT
 
 ![Net value grid](roi-sensitivity.png)
 
-**p75 target** (breach = above the training-window per-category p75, base rate 27%; p75-trained,
-isotonic-calibrated RF, ROC-AUC 0.876). Treat 20% of cases, assumed effect 10%, breach cost 400:
+**p75 target** (breach = above the training-window per-category p75, base rate 27%; p75-trained RF,
+sigmoid-calibrated on a held-out temporal slice, ROC-AUC 0.858). Treat 20% of cases, assumed effect 10%,
+breach cost 400:
 
 | Who gets treated | Precision (breaches among treated) | Net value | Break-even effect |
 |---|---|---|---|
-| Top 20% by model risk | 0.775 | **+720** | 8.1% |
+| Top 20% by model risk | 0.692 | **+320** | 9.0% |
 | Top 20% by supplier history rule (no model) | 0.675 | +240 | 9.3% |
 | Random 20% | 0.270 | -1,704 | 23.2% |
 | Busiest suppliers first | 0.100 | -2,520 | 62.5% |
 
-The model's precision lift over random is +0.56 / +0.56 / +0.51 / +0.37 at 5 / 10 / 20 / 30% treated,
-with bootstrap 95% CIs all excluding 0 (e.g. +0.42 to +0.56 at 20%). So on a realistic target triage
-**does** have business value in this simulation: random targeting needs a ~23% effect to break even, the
-model only ~8%, and a one-feature supplier-history rule captures about 80% of the model's net-value advantage over random (+1,944 vs +2,424), so much of the model's value here is that rule. At a
-5% effect and breach cost 200 nothing pays for itself (net -500 to -3,340 depending on share); that region
-is in the grid, not hidden. "Highest order value first" was **not run**: this dataset has no order-value
-column (recorded in the JSON as `strategies_not_run`). Busiest-supplier is the closest available rule and it
-is *worse than random*.
+The model's precision lift over random is +0.66 / +0.58 / +0.42 / +0.32 at 5 / 10 / 20 / 30% treated, with
+bootstrap 95% CIs all excluding 0 (e.g. +0.32 to +0.49 at 20%). So on a realistic target triage **does** have
+business value in this simulation: random targeting needs a ~23% effect to break even, the model ~9%.
 
-**Configured target** (~97% breach in the window): every strategy is within noise of random. Served
-(calibrated) model lift over random is +0.022 [-0.017, +0.031] at 20% -- the "triage adds nothing" statement in
-the previous section is now measured rather than asserted.
+**But a one-feature rule gets almost all of it.** Ranking cases by the causal supplier historical breach rate --
+no model -- captures **100% / 106% / 96% / 81%** of the model's net-value advantage over random at 5 / 10 / 20 /
+30% treated (effect 10%, breach cost 400; e.g. at 20%: +1,944 vs +2,024). At small treated shares the rule is as
+good as the model or better. The model's edge only shows at the largest share. Any claim that this model adds
+business value should therefore be made against the rule, not against random.
 
-### Found while doing this: the served calibrated model ranks far worse than the number we report
-On the configured-target held-out window the **served (isotonic-calibrated) model has ROC-AUC 0.665, the raw
-forest 0.986** (the 0.9857 in `models/sla_risk_model.meta.json` and the README history is the raw forest).
-Isotonic calibration fitted on the same rows the forest trained on maps almost all scores to ~1.0, creating
-large ties, which destroys ranking. It matters little for Brier score but matters for triage: the raw
-forest's top-k lift is +0.030 [+0.018, +0.043] vs +0.022 [-0.017, +0.031] for the served model (see
-`configured` vs `configured_uncalibrated` in the JSON). With only 18 negatives in 600 the 0.665 is itself
-noisy, and on the p75 target calibration barely changes ranking (0.8758 vs 0.8757), so this is a degenerate-
-target effect -- but the deployed artifact is the affected one. **Not changed here**: swapping or refitting the
-served model is a behaviour change to `/orders/{id}/risk`; recommended follow-up is calibrating on a held-out
-slice (or ranking on raw scores) and reporting the served model's AUC in `meta.json`.
+At a 5% effect and breach cost 200 nothing pays for itself (net -500 to -3,340 depending on share); that region
+is in the grid, not hidden. **Not run: "highest order value first".** This dataset has no order-value column
+(recorded in the JSON as `strategies_not_run`), so it could not be compared honestly; busiest-supplier stands in
+as the nearest available business rule, and it is *worse than random*.
+
+**Configured target** (~97% breach in the window): every strategy is within 3 points of random by construction
+(the maximum possible precision lift is 0.03). The served model reaches precision 1.0 at every share, a lift of
++0.030 [+0.018, +0.043] -- statistically real, practically negligible, and net values are within 150 of random.
+
+### Correction history
+An earlier version of this section (2026-09-25) reported the model's p75 net value as +720 and the rule as
+capturing "about 80%". Those figures used a forest fitted on the full training window and calibrated in-sample;
+after the calibration fix the forest is fitted on 80% of it, ROC-AUC fell from 0.876 to 0.858, and the rule now
+captures 96% at 20% treated. Also found while producing them: the served isotonic calibrator (fitted on the
+forest's own training rows) had ROC-AUC 0.665 vs 0.986 raw; fixed in [`calibration.md`](calibration.md).
 
 Reproduce the ledger simulation: `python -m scripts.setup_database && python -m scripts.simulate_interventions`, then `GET /roi/summary`.

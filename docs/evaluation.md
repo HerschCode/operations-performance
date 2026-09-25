@@ -49,41 +49,44 @@ replaced rather than left inconsistent with the ablation study below):
 
 | Model | Precision | Recall | F1 | ROC-AUC |
 |---|---|---|---|---|
-| Random forest (deployed) - degenerate target, inflated | 0.983 | 0.991 | 0.987 | 0.986 |
-| Logistic regression | 0.986 | 0.993 | 0.990 | 0.910 |
-| Gradient boosting | 0.986 | 0.993 | 0.990 | 0.769 |
+| Random forest (deployed) - degenerate target, inflated | 0.983 | 0.991 | 0.987 | 0.983 |
+| Logistic regression | 0.986 | 0.991 | 0.989 | 0.895 |
+| Gradient boosting | 0.986 | 0.993 | 0.990 | 0.907 |
+
+*Regenerated 2026-09-25 after the calibration fix ([`calibration.md`](calibration.md)): each model is now fitted on the earliest 80% of the training window (the latest 20% calibrates it), so these differ slightly from earlier tables that fitted on the full window (RF 0.986, LR 0.910, GB 0.769). Served (calibrated) ROC-AUC equals the raw ROC-AUC.*
 
 5-fold time-series cross-validation (random forest): mean ROC-AUC 0.945 (std 0.048).
 
 **Probability calibration** (`scripts/calibration_analysis.py` — reproduce with one command):
 
-| Model | Brier score (raw) | Brier score (calibrated) | Brier Skill Score | Improvement |
+| Model | Brier score (raw) | Brier score (calibrated, held-out slice) | Brier Skill Score (calibrated) | Improvement |
 |---|---|---|---|---|
-| Logistic regression | 0.0180 | 0.0151 | 0.479 | +0.0029 |
-| Random forest | 0.0245 | 0.0215 | 0.263 | +0.0031 |
-| Gradient boosting | 0.0170 | **0.0138** | **0.526** | +0.0032 |
+| Logistic regression | 0.0192 | 0.0198 | 0.321 | -0.0005 |
+| Random forest | 0.0212 | 0.0235 | 0.193 | -0.0023 |
+| Gradient boosting | 0.0190 | 0.0209 | 0.281 | -0.0019 |
 
-Baseline (always predict 97% breach rate): Brier = 0.0291. Brier Skill Score > 0 means better than the naive forecaster; a score of 0.526 means the calibrated GB model explains 52.6% of the improvable uncertainty. Calibration uses isotonic regression via `CalibratedClassifierCV(FrozenEstimator(model))` on the training split — the calibrated model is what the API serves, not the raw probability output.
+Baseline (always predict 97% breach rate): Brier = 0.0291. **On this degenerate target calibration does not improve Brier score** (negative "improvement"): the earlier table here showed +0.003 gains and a GB Brier skill score of 0.526, but those calibrators were fitted on the models' own training rows (see [`calibration.md`](calibration.md)). Calibration is now Platt (sigmoid) scaling fitted on the latest 20% of the training window, which holds only 16 non-breaches, so it is a weak signal here; on the p75 target (27% base rate) the same procedure cuts the random forest's Brier from 0.193 to 0.141. The served model's ROC-AUC equals the raw model's by construction (sigmoid is monotonic).
 
-**Why this matters operationally:** ROC-AUC of 0.986 (on the degenerate 97%-breach target; 0.83-0.89 on realistic base rates) means the model ranks cases correctly. Brier score measures whether `breach_probability: 0.73` actually means ~73% of similar cases breach — a calibrated score is a decision input, not just a ranking. An operations team setting intervention thresholds needs calibrated probabilities to reason about cost vs. benefit; a poorly calibrated model produces misleading risk scores even at high AUC.
+**Why this matters operationally:** ROC-AUC of 0.983 (on the degenerate 97%-breach target; 0.83-0.89 on realistic base rates) means the model ranks cases correctly. Brier score measures whether `breach_probability: 0.73` actually means ~73% of similar cases breach — a calibrated score is a decision input, not just a ranking. An operations team setting intervention thresholds needs calibrated probabilities to reason about cost vs. benefit; a poorly calibrated model produces misleading risk scores even at high AUC.
 
 **Cost-sensitive threshold analysis** (`scripts/cost_threshold_analysis.py`) — sweeps the decision threshold against three FN/FP cost ratios, making the operational deployment recommendation explicit rather than defaulting to sklearn's t=0.5:
 
 | Threshold | Precision | Recall | FP | FN | 10:1 cost |
 |---|---|---|---|---|---|
-| 0.10 | 98.3% | 100.0% | 10 | 0 | 10 |
-| **0.35** | **98.6%** | **100.0%** | **8** | **0** | **8** ← recommended |
-| 0.65 | 98.6% | 99.8% | 8 | 1 | 18 |
-| 0.90 | 98.6% | 99.8% | 8 | 1 | 28 |
+| 0.10-0.55 | 97.0% | 100.0% | 18 | 0 | 18 |
+| 0.60 | 97.8% | 100.0% | 13 | 0 | 13 |
+| **0.65** | **98.5%** | **100.0%** | **9** | **0** | **9** ← optimal for 5:1, 10:1, 20:1 |
+| 0.70 | 98.5% | 99.5% | 9 | 3 | 39 |
+| 0.90 | 98.5% | 99.3% | 9 | 4 | 49 |
 
-At t=0.35 (optimal for 5:1, 10:1, and 20:1 cost ratios): 100% recall (zero missed breaches), 98.6% precision, 8 false alarms on 590 flagged cases. The threshold is applied to a calibrated probability, so 0.35 means "estimated breach probability of at least 35%" — but note that with a 97% base rate almost every case clears it (590 of 600 were flagged), so on this split the threshold barely discriminates; 98.6% of flagged cases breach only because nearly all cases do. The recommended operational instruction is "flag every case the model scores ≥ 0.35" rather than "flag the top-k ranked cases."
+*Regenerated 2026-09-25 (was t=0.35 with 8 false alarms, computed on the old in-sample-calibrated scores; `python -m scripts.cost_threshold_analysis`).* At t=0.65: 100% recall, 98.5% precision, 9 false alarms on 591 flagged cases. With a 97% base rate essentially every case is flagged (591 of 600), so the threshold barely discriminates and the recommended instruction "flag everything scoring >= 0.65" is close to "flag everything". This table is fragile for the reason in the next paragraph, not evidence of a strong classifier.
 
 <a id="base-rate-caveat"></a>
 **Base-rate caveat (measured, `scripts/` one-off check):** the held-out test split is **97.0% breaches
 — only 18 of 600 cases are non-breaches** (93.8% overall, 93.0% in the training window). A
 "flag every case" rule therefore already gets 100% recall and 97.0% precision with 18 false alarms; the
-model at t=0.35 gets 98.6% precision with 8. That is a real but small improvement, and ROC-AUC on this
-split is computed by ranking 18 negatives against 582 positives, so treat 0.986 (and the threshold table
+model at t=0.65 gets 98.5% precision with 9 (less than the old 8, which came from the flawed calibration). That is a real but small improvement, and ROC-AUC on this
+split is computed by ranking 18 negatives against 582 positives, so treat 0.983 (and the threshold table
 above) as fragile, high-variance numbers rather than evidence of a strong classifier. The dataset's SLA
 targets make breaching the norm; that is why the evaluation was repeated on a less degenerate target:
 

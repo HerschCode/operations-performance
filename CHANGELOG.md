@@ -2,6 +2,18 @@
 
 ## Unreleased -- Post-v1.0.0 upgrade work
 
+### Fix: served-model calibration bug (2026-09-25)
+- Served model was isotonic-calibrated on the forest's own training rows (7 distinct scores on 600 test
+  cases; ROC-AUC 0.665-0.69 vs 0.983-0.986 raw) and `meta.json` recorded the raw score. Now: forest on
+  the earliest 80% of the training window, Platt/sigmoid calibration on the latest 20%
+  (`src/ml/calibration.py`, `fit_calibrated`); isotonic only if it wins Brier without losing AUC and the
+  slice has >= 50 of each class. `meta.json` records `served_model` and `raw_model` separately.
+- Deployed model retrained (served ROC-AUC = raw = 0.9835); `simulate_interventions`, `roi_sensitivity`,
+  `calibration_analysis`, `cost_threshold_analysis` rerun; `docs/evaluation.md` tables regenerated
+  (Brier no longer improves on the 97% target; optimal threshold 0.35 -> 0.65).
+- Corrected finding: the supplier-history rule captures 81-106% (96% at k=20%) of the model's net-value
+  advantage over random, not 80%. New `docs/calibration.md`, `tests/test_calibration.py`.
+
 ### Fix 2: ROI on a non-degenerate target + sensitivity grid (2026-09-25)
 - `scripts/roi_sensitivity.py`: policy replay on the p75 target (27% base rate, p75-trained model),
   grid = treated share x effect x breach cost, strategies model / random / supplier-history rule /
