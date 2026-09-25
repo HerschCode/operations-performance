@@ -28,7 +28,7 @@ def simulated_rows(policy: dict) -> pd.DataFrame:
     X, _ = build_features(evaluated)
     bundle = load_model()
     # bundle["model"] is what the API serves (the calibrated wrapper); "uncalibrated_model" is the raw forest.
-    assert type(bundle["model"]).__name__ == "CalibratedClassifierCV", "expected the served, calibrated model"
+    assert type(bundle["model"]).__name__ == "HeldOutCalibratedClassifier", "expected the served, held-out-calibrated model"
     evaluated["risk"] = predict_sla_risk(X, bundle)["breach_probability"].values
     window = evaluated.iloc[int(len(evaluated) * 0.8):]
     n_act = max(1, int(len(window) * policy["capacity_pct"]))

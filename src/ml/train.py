@@ -20,6 +20,7 @@ from sklearn.metrics import (
     confusion_matrix,
 )
 
+from src.ml.calibration import HeldOutCalibratedClassifier
 from src.ml.features import build_features
 
 
@@ -44,25 +45,21 @@ def train_models(
 
     results = {}
 
-    baseline = LogisticRegression(max_iter=3000, class_weight="balanced")
-    baseline.fit(X_train, y_train)
-    results["logistic_regression"] = _evaluate(baseline, X_test, y_test)
-    results["logistic_regression"]["model"] = baseline
-    results["logistic_regression"]["calibrated_model"] = calibrate_model(baseline, X_train, y_train)
-    results["logistic_regression"]["calibrated_eval"] = _evaluate(
-        results["logistic_regression"]["calibrated_model"], X_test, y_test
-    )
+    def _register(name, fit_fn):
+        base, calibrated, method, info = fit_calibrated(fit_fn, X_train, y_train)
+        results[name] = _evaluate(base, X_test, y_test)
+        results[name]["model"] = base
+        results[name]["calibrated_model"] = calibrated
+        results[name]["calibration_method"] = method
+        results[name]["calibration_info"] = info
+        results[name]["calibrated_eval"] = _evaluate(calibrated, X_test, y_test)
+        return base
 
-    forest = RandomForestClassifier(
-        n_estimators=200, max_depth=8, class_weight="balanced", random_state=random_state
-    )
-    forest.fit(X_train, y_train)
-    results["random_forest"] = _evaluate(forest, X_test, y_test)
-    results["random_forest"]["model"] = forest
-    results["random_forest"]["calibrated_model"] = calibrate_model(forest, X_train, y_train)
-    results["random_forest"]["calibrated_eval"] = _evaluate(
-        results["random_forest"]["calibrated_model"], X_test, y_test
-    )
+    _register("logistic_regression",
+              lambda X_, y_: LogisticRegression(max_iter=3000, class_weight="balanced").fit(X_, y_))
+
+    forest = _register("random_forest", lambda X_, y_: RandomForestClassifier(
+        n_estimators=200, max_depth=8, class_weight="balanced", random_state=random_state).fit(X_, y_))
     results["random_forest"]["feature_importances"] = dict(
         sorted(
             zip(X.columns, forest.feature_importances_),
@@ -77,20 +74,14 @@ def train_models(
     # forest is automatically the right choice. GradientBoostingClassifier doesn't
     # support class_weight directly (unlike the other two) -- sample_weight is the
     # equivalent mechanism, computed manually here for the same balanced effect.
-    class_counts = y_train.value_counts()
-    sample_weight = y_train.map({
-        cls: len(y_train) / (2 * count) for cls, count in class_counts.items()
-    })
-    boosting = GradientBoostingClassifier(
-        n_estimators=150, max_depth=3, learning_rate=0.1, random_state=random_state
-    )
-    boosting.fit(X_train, y_train, sample_weight=sample_weight)
-    results["gradient_boosting"] = _evaluate(boosting, X_test, y_test)
-    results["gradient_boosting"]["model"] = boosting
-    results["gradient_boosting"]["calibrated_model"] = calibrate_model(boosting, X_train, y_train)
-    results["gradient_boosting"]["calibrated_eval"] = _evaluate(
-        results["gradient_boosting"]["calibrated_model"], X_test, y_test
-    )
+    def _fit_boosting(X_, y_):
+        counts = y_.value_counts()
+        weight = y_.map({cls: len(y_) / (2 * count) for cls, count in counts.items()})
+        return GradientBoostingClassifier(
+            n_estimators=150, max_depth=3, learning_rate=0.1, random_state=random_state
+        ).fit(X_, y_, sample_weight=weight)
+
+    boosting = _register("gradient_boosting", _fit_boosting)
     results["gradient_boosting"]["feature_importances"] = dict(
         sorted(
             zip(X.columns, boosting.feature_importances_),
@@ -122,24 +113,65 @@ def train_models(
     return results
 
 
-def calibrate_model(model, X_train, y_train, method: str = "isotonic"):
-    """Wrap a fitted classifier in Platt scaling (method='sigmoid') or isotonic
-    regression (method='isotonic') so predicted probabilities are calibrated —
-    i.e. P(breach | score=0.7) ≈ 70% of cases actually breach, not just "this
-    case ranks higher than cases scored below 0.7".
+def calibrate_model(model, X_cal, y_cal, method: str = "sigmoid"):
+    """Fits a calibration layer on top of an ALREADY-FITTED model (frozen). X_cal/y_cal must be rows
+    the model was NOT trained on: a random forest's predictions on its own training rows are pushed
+    toward 0/1, so calibrating on them yields a coarse step function (isotonic) with huge ties -- the
+    bug this project shipped until 2026-09-25 (served ROC-AUC 0.665 vs 0.986 raw; docs/calibration.md).
+    method: "sigmoid" (Platt; strictly monotonic, so it cannot change ROC-AUC) or "isotonic".
+    See src/ml/calibration.py for why this is not sklearn's CalibratedClassifierCV."""
+    return HeldOutCalibratedClassifier(model, method).fit(X_cal, y_cal)
 
-    Uses cv='prefit' / FrozenEstimator (sklearn ≥1.6) because the base model is
-    already trained on X_train; this fits only the calibration layer on the same
-    training data, which is fine for a portfolio pipeline (in production you'd
-    calibrate on a held-out calibration split to avoid overfitting the
-    calibration layer itself).
-    """
-    if _FrozenEstimator is not None:
-        cal = CalibratedClassifierCV(_FrozenEstimator(model), method=method)
-    else:
-        cal = CalibratedClassifierCV(model, cv="prefit", method=method)
-    cal.fit(X_train, y_train)
-    return cal
+
+CALIBRATION_FRACTION = 0.2
+
+
+MIN_NEGATIVES_FOR_ISOTONIC = 50
+
+
+def choose_calibration_method(model, X_cal, y_cal) -> str:
+    """Sigmoid unless isotonic wins on Brier score WITHOUT losing ROC-AUC. Judged out-of-sample inside the
+    calibration slice with a 2-fold temporal swap (fit the calibrator on one half, score the other, both
+    directions), and only when each class has >= MIN_NEGATIVES_FOR_ISOTONIC examples in the slice --
+    isotonic is a step function whose steps are estimated from the minority class, and with a few
+    negatives it creates ties. (First version of this rule had no minimum and picked isotonic on the
+    ~97%-breach target, where it cost 0.075 ROC-AUC on the test window; docs/calibration.md.)"""
+    n = len(y_cal)
+    half = n // 2
+    if min(int((y_cal == 0).sum()), int((y_cal == 1).sum())) < MIN_NEGATIVES_FOR_ISOTONIC:
+        return "sigmoid"
+    folds = [(slice(0, half), slice(half, n)), (slice(half, n), slice(0, half))]
+    tot = {"sigmoid": [0.0, 0.0], "isotonic": [0.0, 0.0]}
+    try:
+        for fit_s, score_s in folds:
+            if y_cal.iloc[fit_s].nunique() < 2 or y_cal.iloc[score_s].nunique() < 2:
+                return "sigmoid"
+            for m in tot:
+                p = calibrate_model(model, X_cal.iloc[fit_s], y_cal.iloc[fit_s], m).predict_proba(X_cal.iloc[score_s])[:, 1]
+                tot[m][0] += brier_score_loss(y_cal.iloc[score_s], p)
+                tot[m][1] += roc_auc_score(y_cal.iloc[score_s], p)
+    except ValueError:
+        return "sigmoid"
+    iso, sig = tot["isotonic"], tot["sigmoid"]
+    return "isotonic" if iso[0] < sig[0] and iso[1] >= sig[1] - 1e-9 else "sigmoid"
+
+
+def fit_calibrated(fit_fn, X_train, y_train, method: str = "auto", cal_fraction: float = CALIBRATION_FRACTION):
+    """Temporal calibration split of the TRAINING window (rows must be in time order): the base model
+    is fitted on the earliest (1 - cal_fraction) and the calibration layer on the latest cal_fraction.
+    The test window is never touched. Returns (base_model, calibrated_model, method_used, info)."""
+    cut = int(len(y_train) * (1 - cal_fraction))
+    Xf, yf, Xc, yc = X_train.iloc[:cut], y_train.iloc[:cut], X_train.iloc[cut:], y_train.iloc[cut:]
+    base = fit_fn(Xf, yf)
+    info = {"fit_rows": len(yf), "calibration_rows": len(yc)}
+    if yc.nunique() < 2:            # nothing to calibrate against; serve the raw model, say so
+        return base, base, "none", info
+    try:
+        used = choose_calibration_method(base, Xc, yc) if method == "auto" else method
+        return base, calibrate_model(base, Xc, yc, used), used, info
+    except ValueError as exc:      # e.g. a Platt slope <= 0 would invert the ranking; never serve that
+        info["calibration_error"] = str(exc)
+        return base, base, "none", info
 
 
 def _evaluate(model, X_test, y_test) -> dict:
@@ -170,6 +202,7 @@ def _evaluate(model, X_test, y_test) -> dict:
         # raw test-set probabilities — needed by save_best_model to compute the
         # training-time risk distribution baseline for /observability/prediction-drift
         "probs": probs.tolist(),
+        "n_unique_scores": int(len(np.unique(probs))),
     }
 
 
@@ -231,12 +264,20 @@ def cross_validate_time_series(
     }
 
 
+def _metric_block(ev: dict) -> dict:
+    return {"roc_auc": round(ev["roc_auc"], 4), "pr_auc": round(ev.get("pr_auc", 0), 4),
+            "brier_score": round(ev.get("brier_score", 0), 4), "n_unique_scores": ev.get("n_unique_scores"),
+            "n_scores": len(ev.get("probs", []))}
+
+
 def save_best_model(results: dict, out_path: str | Path = "models/sla_risk_model.joblib"):
     import json
     from datetime import datetime, timezone
 
+    # "Best" = highest ROC-AUC of the model actually SERVED (the calibrated one), not the raw forest.
     best_name = max(
-        (k for k in results if not k.startswith("_")), key=lambda k: results[k]["roc_auc"]
+        (k for k in results if not k.startswith("_")),
+        key=lambda k: results[k].get("calibrated_eval", results[k])["roc_auc"],
     )
     best = results[best_name]
 
@@ -256,6 +297,7 @@ def save_best_model(results: dict, out_path: str | Path = "models/sla_risk_model
             "feature_importances": best.get("feature_importances"),
             "calibration_curve": best.get("calibrated_eval", best).get("calibration_curve"),
             "brier_score": best.get("calibrated_eval", best).get("brier_score"),
+            "calibration_method": best.get("calibration_method"),
         },
         out_path,
     )
@@ -288,13 +330,21 @@ def save_best_model(results: dict, out_path: str | Path = "models/sla_risk_model
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "train_row_count": results["_split"]["train_size"],
         "test_row_count": results["_split"]["test_size"],
-        "roc_auc": round(best["roc_auc"], 4),
+        # roc_auc is the SERVED (calibrated) model's -- until 2026-09-25 this recorded the raw forest's
+        # and hid a served-vs-raw ranking gap; both are now recorded separately below.
+        "roc_auc": round(best_eval["roc_auc"], 4),
+        "calibration_method": best.get("calibration_method"),
+        "fit_row_count": (best.get("calibration_info") or {}).get("fit_rows"),
+        "calibration_row_count": (best.get("calibration_info") or {}).get("calibration_rows"),
+        "served_model": _metric_block(best_eval),
+        "raw_model": _metric_block(best),
         "train_risk_distribution": train_risk_dist,
         "train_breach_rate": train_breach_rate,
         "feature_baselines": results.get("_feature_baselines"),
     }, indent=2))
 
-    print(f"Saved best model ({best_name}, ROC-AUC={best['roc_auc']:.3f}) to {out_path}")
+    print(f"Saved best model ({best_name}, served ROC-AUC={best_eval['roc_auc']:.3f}, "
+          f"raw ROC-AUC={best['roc_auc']:.3f}) to {out_path}")
     return best_name
 
 
@@ -349,6 +399,7 @@ if __name__ == "__main__":
         with mlflow.start_run(run_name=f"train_{best_name}"):
             mlflow.log_params({
                 "model_type": best_name,
+                "calibration_method": best.get("calibration_method"),
                 "train_rows": results["_split"]["train_size"],
                 "test_rows": results["_split"]["test_size"],
             })
@@ -359,9 +410,17 @@ if __name__ == "__main__":
                 "f1": round(best["f1"], 4),
                 "brier_score": round(best.get("brier_score", 0), 4),
             })
-            cal_model = best.get("calibrated_model", best["model"])
+            served_eval = best.get("calibrated_eval", best)
+            mlflow.log_metrics({"served_roc_auc": round(served_eval["roc_auc"], 4),
+                                "served_brier_score": round(served_eval["brier_score"], 4)})
+            # Log the fitted sklearn estimator (MLflow's default serializer rejects our custom calibration
+            # wrapper as an untrusted type); the calibrator itself is two numbers (Platt a, b) or an isotonic
+            # step function, recorded in the served bundle and .meta.json.
+            cal = best.get("calibrated_model")
+            if cal is not None and hasattr(cal, "a_"):
+                mlflow.log_params({"platt_a": round(cal.a_, 4), "platt_b": round(cal.b_, 4)})
             mlflow.sklearn.log_model(
-                cal_model,
+                best["model"],
                 artifact_path="model",
                 registered_model_name="sla_risk_predictor",
             )

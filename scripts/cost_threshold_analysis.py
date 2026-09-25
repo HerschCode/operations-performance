@@ -13,7 +13,7 @@ threshold and compute expected cost under three C_FN/C_FP cost ratios. The
 calibrated model is the key enabler: an uncalibrated model produces rankings,
 not probabilities. The calibrated model produces P(breach | features) ≈ actual
 breach rate at that score, so a threshold maps directly to a business-meaningful
-operating point: "flag every case the model scores ≥ 0.35" is an operational
+operating point: "flag every case the model scores ≥ t (t is computed by this script, not fixed)" is an operational
 instruction, not just a ranking.
 
 Run from repo root (requires RAW_EVENT_LOG_PATH env var or .env file):
@@ -65,16 +65,19 @@ def main():
     X_train, X_test = X.loc[train_idx], X.loc[test_idx]
     y_train, y_test = y.loc[train_idx], y.loc[test_idx]
 
-    # Use calibrated gradient boosting (best BSS=0.526) for threshold sweep
+    # Calibrated gradient boosting (temporal held-out calibration, src/ml/train.py) for the threshold sweep
     results = train_models(X, y, evaluated)
     gb_cal = results["gradient_boosting"]["calibrated_model"]
     probs = gb_cal.predict_proba(X_test)[:, 1]
+    from sklearn.metrics import brier_score_loss
+    brier = brier_score_loss(y_test, probs)
+    bss = 1 - brier / brier_score_loss(y_test, [y_test.mean()] * len(y_test))
 
     n_pos = int(y_test.sum())
     n_neg = int((~y_test.astype(bool)).sum())
 
     print(f"\n{'='*76}")
-    print(f"  Cost-Sensitive Threshold Analysis — Calibrated Gradient Boosting (BSS=0.526)")
+    print(f"  Cost-Sensitive Threshold Analysis — Calibrated Gradient Boosting (BSS={bss:.3f})")
     print(f"  Test set: {len(y_test)} cases | {n_pos} breaches ({n_pos/len(y_test):.1%}) | {n_neg} non-breaches")
     print(f"{'='*76}\n")
 
@@ -126,15 +129,15 @@ def main():
         print(f"    Miss {rec['fn']} of {n_pos} actual breaches (recall {rec['recall']:.1%})")
         print(f"    Precision {rec['precision']:.1%} — of every 10 flagged cases, "
               f"~{round(rec['precision']*10):.0f} are real breaches")
-        print(f"  Calibration enables this: P(breach|score>={rec_t:.2f}) ≈ {rec_t:.0%} of")
-        print(f"  flagged cases breach — not a ranking threshold, an estimated probability.")
+        print(f"  Of the {rec['tp']+rec['fp']} cases scored >= {rec_t:.2f}, {rec['precision']:.1%} actually breached.")
+        print(f"  NOTE: with a {n_pos/len(y_test):.0%} base rate this flags nearly every case, so the threshold barely discriminates.")
 
     print(f"\n{'='*76}\n")
 
     out = REPO_ROOT / "models" / "threshold_analysis.json"
     out.write_text(json.dumps({
         "model": "gradient_boosting_calibrated",
-        "bss": 0.526,
+        "bss": round(float(bss), 4),
         "test_size": len(y_test),
         "n_breaches": n_pos,
         "n_clean": n_neg,

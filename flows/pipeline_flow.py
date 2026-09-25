@@ -189,8 +189,9 @@ def evaluate_and_register_task(train_results: dict) -> dict:
     import yaml
     from src.ml.train import save_best_model
 
-    best_name = max((k for k in train_results if not k.startswith("_")), key=lambda k: train_results[k]["roc_auc"])
-    candidate_roc_auc = train_results[best_name]["roc_auc"]
+    served = lambda r: r.get("calibrated_eval", r)["roc_auc"]   # compare the model that would be SERVED
+    best_name = max((k for k in train_results if not k.startswith("_")), key=lambda k: served(train_results[k]))
+    candidate_roc_auc = served(train_results[best_name])
 
     meta_path = REPO_ROOT / "models" / "sla_risk_model.meta.json"
     deployed_roc_auc = None

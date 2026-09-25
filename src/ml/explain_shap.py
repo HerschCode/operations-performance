@@ -20,11 +20,16 @@ def _unwrap_for_shap(model):
     """SHAP's TreeExplainer needs the raw sklearn estimator, not a
     CalibratedClassifierCV wrapper around it. Unwrap if needed."""
     try:
+        if hasattr(model, "base") and hasattr(model, "method"):      # HeldOutCalibratedClassifier
+            return model.base
         from sklearn.calibration import CalibratedClassifierCV
         if isinstance(model, CalibratedClassifierCV):
             # calibrated_classifiers_ is a list of (base_estimator, calibrator) pairs.
             # All base estimators are the same fitted model — take the first.
-            return model.calibrated_classifiers_[0].estimator
+            model = model.calibrated_classifiers_[0].estimator
+        # sklearn >= 1.6 wraps an already-fitted base model in FrozenEstimator
+        if type(model).__name__ == "FrozenEstimator":
+            model = model.estimator
     except Exception:
         pass
     return model
@@ -42,6 +47,8 @@ def explain_prediction_shap(
     feature overall)."""
     import shap
 
+    # TreeExplainer needs numeric input; one-hot columns arrive as bool/object from get_dummies
+    background_data, feature_row = background_data.astype(float), feature_row.astype(float)
     explainer = shap.Explainer(_unwrap_for_shap(model), background_data)
     shap_values = explainer(feature_row)
 
@@ -75,6 +82,7 @@ def explain_batch_shap(
     scoring), not one case in isolation."""
     import shap
 
+    background_data, features = background_data.astype(float), features.astype(float)
     explainer = shap.Explainer(_unwrap_for_shap(model), background_data)
     shap_values = explainer(features)
 

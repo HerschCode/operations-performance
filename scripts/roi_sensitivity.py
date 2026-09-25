@@ -3,8 +3,8 @@ grid instead of one point estimate.
 
 Two scenarios over the same held-out window (last 20% of cases by start time):
 - p75: breach = cycle time above the training-window per-category p75 (~27% base rate), scored by a
-  random forest trained on that target (same hyperparameters as src/ml/train.py, isotonic-calibrated
-  like the served model).
+  random forest trained on that target (same hyperparameters as src/ml/train.py, calibrated on a held-out
+  temporal slice by fit_calibrated, like the served model).
 - configured: the deployed model on the configured SLA targets (~94% breach) -- kept for contrast.
 
 Strategies for "which k cases get the intervention":
@@ -41,7 +41,7 @@ from src.analytics.sla_analysis import evaluate_sla, load_sla_targets
 from src.api.db import load_cases
 from src.ml.features import build_features
 from src.ml.predict import load_model, predict_sla_risk
-from src.ml.train import calibrate_model, time_based_split
+from src.ml.train import fit_calibrated, time_based_split
 from src.roi.ledger import load_policy
 
 warnings.filterwarnings("ignore")
@@ -154,18 +154,13 @@ def main():
     ev = evaluate_sla(cases, targets_from_training_percentile(cases, 75))
     X, y = build_features(ev)
     tr, te = time_based_split(ev)
-    forest = RandomForestClassifier(n_estimators=200, max_depth=8, class_weight="balanced", random_state=42)
-    forest.fit(X.loc[tr], y.loc[tr])
-    cal = calibrate_model(forest, X.loc[tr], y.loc[tr])
+    fit_rf = lambda X_, y_: RandomForestClassifier(
+        n_estimators=200, max_depth=8, class_weight="balanced", random_state=42).fit(X_, y_)
+    _, cal, cal_method, _ = fit_calibrated(fit_rf, X.loc[tr], y.loc[tr])   # temporal split of the training window
     evd = with_history(ev)
     result["scenarios"]["p75"] = scenario(
         evd, te, make_scores(evd, tr, te, cal.predict_proba(X.loc[te])[:, 1]), y.loc[te].values, cost_per)
-    result["scenarios"]["p75"]["target"] = "cycle time > training-window per-category p75; p75-trained calibrated RF"
-    # same forest, raw probabilities -- isotonic calibration fit on the training rows can create ties
-    result["scenarios"]["p75_uncalibrated"] = scenario(
-        evd, te, make_scores(evd, tr, te, forest.predict_proba(X.loc[te])[:, 1]), y.loc[te].values, cost_per)
-    result["scenarios"]["p75_uncalibrated"]["target"] = "as p75, ranking by the raw (uncalibrated) forest"
-
+    result["scenarios"]["p75"]["target"] = "cycle time > training-window per-category p75; p75-trained RF, " + cal_method+" calibration on a held-out training slice"
     # configured scenario: the deployed (served, calibrated) model
     ev2 = evaluate_sla(cases, load_sla_targets())
     X2, y2 = build_features(ev2)
@@ -175,11 +170,7 @@ def main():
     evd2 = with_history(ev2)
     result["scenarios"]["configured"] = scenario(
         evd2, te2, make_scores(evd2, tr2, te2, risk), y2.loc[te2].values, cost_per)
-    result["scenarios"]["configured"]["target"] = "configured SLA targets (config/sla.yaml); deployed model as served (calibrated)"
-    raw_risk = bundle["uncalibrated_model"].predict_proba(X2.loc[te2].reindex(columns=bundle["columns"], fill_value=0))[:, 1]
-    result["scenarios"]["configured_uncalibrated"] = scenario(
-        evd2, te2, make_scores(evd2, tr2, te2, raw_risk), y2.loc[te2].values, cost_per)
-    result["scenarios"]["configured_uncalibrated"]["target"] = "configured SLA targets; the deployed forest's raw probabilities"
+    result["scenarios"]["configured"]["target"] = "configured SLA targets (config/sla.yaml); deployed model as served (held-out-slice calibrated)"
 
     OUT_JSON.parent.mkdir(exist_ok=True)
     OUT_JSON.write_text(json.dumps(result, indent=2))
