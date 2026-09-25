@@ -46,9 +46,11 @@ better but are less well calibrated; the LSTM's Brier is better than the RF's at
 - LSTM ≤ GRU on nearly every cell, with seed variance up to ±0.09 ROC-AUC (p75 k=3) — treat single-cell
   differences under ~0.05 as noise.
 
-**Decision: the random forest stays.** Nothing in this phase is deployed (the deployed model is the
-full-case RF; no prefix model is served). If early-warning were productised, the GRU at p75, k=2–3 is the
-candidate to A/B, after a calibration step (e.g. isotonic on a validation slice) that this phase did not do.
+**Update 2026-09-25: the GRU is now served** for early warning, see [`early-risk.md`](early-risk.md). The decision below (RF stays) still holds for the full-case triage model.
+
+**Decision at the time: the random forest stays** for the deployed full-case model, and nothing from this phase
+was deployed. The GRU at p75, k=2–3 was named as the early-warning candidate, pending a calibration step; that
+step (Platt scaling on the validation slice) and the serving path now exist -- see [`early-risk.md`](early-risk.md).
 
 ## Limits
 One split, ~500–600 test cases per cell; bootstrap covers test sampling, not a different split. Seeds vary

@@ -2,6 +2,15 @@
 
 ## Unreleased -- Post-v1.0.0 upgrade work
 
+### Upgrade 4 + hygiene (2026-09-25)
+- `GET /orders/{case_id}/early-risk?k=` (additive): first-k-events GRU ensemble (3 seeds, k in 2/3/5, p75 target)
+  exported to ONNX (`scripts/export_early_risk.py`, `src/ml/early_risk.py`), served with onnxruntime only --
+  torch is not a serving dependency (asserted in a test). Response carries the served model's held-out ROC-AUC
+  (0.76 / 0.76 / 0.79, measured on the ONNX artifact), base rate and an early-warning label; cases already past
+  their target or with fewer than k events get 409. ONNX-vs-PyTorch parity < 1e-5 (tested).
+- Hygiene: `@app.on_event("startup")` replaced by a FastAPI lifespan handler (test added); the deprecation
+  warnings are gone from the suite.
+
 ### Upgrade 3: randomized holdout + uplift validation (2026-09-25)
 - Ledger: `assignment` (treat/holdout) and `experiment_id` (migration 006); deterministic SHA-256 randomizer
   (`src/roi/randomizer.py`, holdout share in `config/interventions.yaml`); `POST /interventions` respects it
