@@ -2,6 +2,16 @@
 
 ## Unreleased -- Post-v1.0.0 upgrade work
 
+### Fix 2: ROI on a non-degenerate target + sensitivity grid (2026-09-25)
+- `scripts/roi_sensitivity.py`: policy replay on the p75 target (27% base rate, p75-trained model),
+  grid = treated share x effect x breach cost, strategies model / random / supplier-history rule /
+  busiest-supplier. `reports/roi_sensitivity.json` (committed), `docs/roi-sensitivity.png`,
+  returned by `GET /roi/summary` as `sensitivity`. "Highest order value" not run: no such column.
+- Result: model beats random on p75 (precision 0.775 vs 0.27 at 20%; break-even effect 8% vs 23%);
+  on the configured target nothing beats random.
+- Found: the served isotonic-calibrated model has ROC-AUC 0.665 on the held-out window vs 0.986 for
+  the raw forest (ties from in-sample calibration). Reported, not changed. See `docs/uplift-method.md`.
+
 ### Fix: calibrated-or-not inconsistency (2026-09-25)
 - `docs/uplift-method.md` called the ROI risk scores "uncalibrated"; they are not. The simulation
   already used `bundle["model"]` (the isotonic `CalibratedClassifierCV` that the API serves), and now

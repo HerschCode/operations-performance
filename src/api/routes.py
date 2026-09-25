@@ -576,7 +576,7 @@ def create_intervention(body: InterventionCreate):
 def roi_summary_endpoint():
     """ROI of the intervention ledger, simulated and logged rows reported separately. Effect sizes
     are ASSUMPTIONS (config/interventions.yaml) -- the response says so in `label`."""
-    from src.roi.ledger import load_policy, roi_summary
+    from src.roi.ledger import load_policy, load_sensitivity, roi_summary
 
     try:
         rows = pd.read_sql(
@@ -587,4 +587,6 @@ def roi_summary_endpoint():
     for r in rows:  # NaN/None -> None for the outcome column
         if r["breached_after"] is None or pd.isna(r["breached_after"]):
             r["breached_after"] = None
-    return roi_summary(rows, load_policy())
+    out = roi_summary(rows, load_policy())
+    out["sensitivity"] = load_sensitivity()
+    return out

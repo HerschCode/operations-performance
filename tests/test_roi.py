@@ -105,3 +105,38 @@ def test_roi_summary_endpoint_separates_simulated_and_logged():
         body = client.get("/roi/summary").json()
     assert body["simulated"]["interventions"] == 1 and body["logged"]["interventions"] == 1
     assert "SIMULATION" in body["label"] and "effect" in body["assumptions"]["types"]["expedite_approval"]
+
+
+def test_load_sensitivity_returns_both_scenarios_and_trims_uncalibrated_grids(tmp_path):
+    import json
+    from src.roi.ledger import load_sensitivity
+
+    scen = {"target": "t", "grid": [{"x": 1}], "model_vs_random": []}
+    f = tmp_path / "s.json"
+    f.write_text(json.dumps({"label": "SIMULATION: x", "cost_per_treatment": 25, "strategies_not_run": {},
+                             "scenarios": {"p75": scen, "configured": scen, "p75_uncalibrated": scen}}))
+    out = load_sensitivity(f)
+    assert {"p75", "configured"} <= set(out["scenarios"])
+    assert "grid" in out["scenarios"]["p75"] and "grid" not in out["scenarios"]["p75_uncalibrated"]
+    assert load_sensitivity(tmp_path / "missing.json") is None
+
+
+def test_committed_sensitivity_grid_is_complete_and_labelled():
+    from src.roi.ledger import load_sensitivity
+
+    out = load_sensitivity()
+    assert out is not None and "SIMULATION" in out["label"]
+    g = out["scenarios"]["p75"]["grid"]
+    assert {r["strategy"] for r in g} == {"model", "random", "supplier_history", "supplier_volume"}
+    assert len(g) == 4 * 4 * 4 * 3           # strategies x shares x effects x breach costs
+    assert "order_value" in out["strategies_not_run"]
+    # on the non-degenerate target the model must beat random at every treated share (CI lower bound > 0)
+    assert all(r["lift_ci95"][0] > 0 for r in out["scenarios"]["p75"]["model_vs_random"])
+
+
+def test_roi_summary_endpoint_includes_sensitivity():
+    df = pd.DataFrame([{"intervention_type": "expedite_approval", "risk_at_intervention": 0.9, "cost": 25.0,
+                        "breached_after": None, "is_simulated": True}])
+    with patch("src.api.routes.pd.read_sql", return_value=df), patch("src.api.routes.get_engine"):
+        body = client.get("/roi/summary").json()
+    assert set(body["sensitivity"]["scenarios"]) >= {"p75", "configured"}

@@ -26,4 +26,6 @@ mlruns/
 data/external/
 
 # Flow run reports -- generated, not committed
-reports/
+reports/*
+!reports/roi_sensitivity.json
+!reports/sequence_model_results.json

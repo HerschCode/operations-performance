@@ -6,6 +6,7 @@ ASSUMPTIONS -- see docs/uplift-method.md for why this is a simulation, not measu
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import yaml
@@ -83,3 +84,22 @@ def roi_summary(rows: list[dict], policy: dict) -> dict:
         "logged": _bucket(real, policy),
         "break_even_effect_simulated": break_even_effect(sim, policy),
     }
+
+
+SENSITIVITY_PATH = Path(__file__).resolve().parents[2] / "reports" / "roi_sensitivity.json"
+
+
+def load_sensitivity(path: str | Path = SENSITIVITY_PATH) -> dict | None:
+    """The committed output of scripts/roi_sensitivity.py (treated share x effect x breach cost grid,
+    model vs random vs rule-based targeting), or None if it has not been generated. Two scenarios are
+    always both present so the degenerate configured target is never shown without the p75 one."""
+    p = Path(path)
+    if not p.exists():
+        return None
+    data = json.loads(p.read_text())
+    # the *_uncalibrated scenarios keep only their summary here (full grids stay in the JSON file)
+    scenarios = {k: ({kk: vv for kk, vv in v.items() if kk != "grid"} if k.endswith("_uncalibrated") else v)
+                 for k, v in data["scenarios"].items()}
+    return {"label": data["label"], "cost_per_treatment": data["cost_per_treatment"],
+            "strategies_not_run": data["strategies_not_run"], "scenarios": scenarios,
+            "regenerate_with": "python -m scripts.roi_sensitivity"}
