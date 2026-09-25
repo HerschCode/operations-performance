@@ -26,7 +26,10 @@ from src.roi.ledger import load_policy, roi_summary
 def simulated_rows(policy: dict) -> pd.DataFrame:
     evaluated = evaluate_sla(load_cases(), load_sla_targets()).sort_values("start_time").reset_index(drop=True)
     X, _ = build_features(evaluated)
-    evaluated["risk"] = predict_sla_risk(X, load_model())["breach_probability"].values
+    bundle = load_model()
+    # bundle["model"] is what the API serves (the calibrated wrapper); "uncalibrated_model" is the raw forest.
+    assert type(bundle["model"]).__name__ == "CalibratedClassifierCV", "expected the served, calibrated model"
+    evaluated["risk"] = predict_sla_risk(X, bundle)["breach_probability"].values
     window = evaluated.iloc[int(len(evaluated) * 0.8):]
     n_act = max(1, int(len(window) * policy["capacity_pct"]))
     top = window.nlargest(n_act, "risk")

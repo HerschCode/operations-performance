@@ -2,6 +2,12 @@
 
 ## Unreleased -- Post-v1.0.0 upgrade work
 
+### Fix: calibrated-or-not inconsistency (2026-09-25)
+- `docs/uplift-method.md` called the ROI risk scores "uncalibrated"; they are not. The simulation
+  already used `bundle["model"]` (the isotonic `CalibratedClassifierCV` that the API serves), and now
+  asserts it. Doc corrected, including that the calibration layer was fit on the training rows.
+  No other doc made the claim.
+
 ### Phase 7: README rewrite (2026-09-24)
 - README cut from 368 to ~100 lines: leads with the honest headline (late-stage triage 0.83-0.89 on
   realistic targets; early-case 0.62-0.76), new title, architecture SVG redrawn for Phases 1-6,

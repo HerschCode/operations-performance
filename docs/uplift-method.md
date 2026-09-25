@@ -37,7 +37,10 @@ action pays for itself if it prevents more than ~1 breach in 16 among treated ca
 - **The counterfactual is missing.** A real estimate needs a randomized holdout (treat a random share of
   flagged cases, leave the rest), then compare breach rates, ideally with an uplift model (two-model or
   causal-forest) trained on that data. The ledger (`applied_at`, `breached_after`) is shaped to collect it.
-- **Risk scores are uncalibrated random-forest probabilities**, and the configured SLA targets make ~94%
+- **Risk scores are the served model's probabilities** -- the isotonic-calibrated random forest
+  (`bundle["model"]`, a `CalibratedClassifierCV`; the raw forest is kept separately as
+  `uncalibrated_model` and is not used). The calibration layer was fit on the training split, the same rows
+  the forest saw, so it can still be over-confident on new data. The configured SLA targets make ~94%
   of cases breach, so the top-20% by risk are nearly all ≈1.0 risk. Consequently "by model risk" and "by
   observed outcomes" nearly agree here, and the ranking adds little over acting on any 20% of cases. On a
   less degenerate target (see [`less-degenerate-target.md`](less-degenerate-target.md)) triage would matter more.
