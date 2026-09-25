@@ -2,6 +2,16 @@
 
 ## Unreleased -- Post-v1.0.0 upgrade work
 
+### Upgrade 3: randomized holdout + uplift validation (2026-09-25)
+- Ledger: `assignment` (treat/holdout) and `experiment_id` (migration 006); deterministic SHA-256 randomizer
+  (`src/roi/randomizer.py`, holdout share in `config/interventions.yaml`); `POST /interventions` respects it
+  (holdout cases logged with cost 0, response `assignment`/`action_required`); `/roi/summary` gains an
+  `experiment` block (per-arm breach rates, measured uplift with CI once >= 30 outcomes per arm).
+- `src/roi/causal.py` + `scripts/uplift_validation.py`: T- and X-learner, Qini/AUUC, validated on real
+  covariates with a planted heterogeneous effect (20 replicates, both scenarios; acceptance criteria set in
+  advance and all met). Naive "treat highest risk" is worse than random on the p75 scenario.
+  `reports/uplift_validation.json`, `docs/uplift-qini.png`, `docs/uplift-method.md`.
+
 ### Fix: served-model calibration bug (2026-09-25)
 - Served model was isotonic-calibrated on the forest's own training rows (7 distinct scores on 600 test
   cases; ROC-AUC 0.665-0.69 vs 0.983-0.986 raw) and `meta.json` recorded the raw score. Now: forest on

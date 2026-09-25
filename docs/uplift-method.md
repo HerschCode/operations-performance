@@ -36,7 +36,7 @@ action pays for itself if it prevents more than ~1 breach in 16 among treated ca
   high-risk cases may be unfixable, and the best targets are often mid-risk.
 - **The counterfactual is missing.** A real estimate needs a randomized holdout (treat a random share of
   flagged cases, leave the rest), then compare breach rates, ideally with an uplift model (two-model or
-  causal-forest) trained on that data. The ledger (`applied_at`, `breached_after`) is shaped to collect it.
+  causal-forest) trained on that data. The ledger now collects it: see "Randomized holdout" below.
 - **Risk scores are the served model's probabilities** -- the sigmoid-calibrated random forest
   (`bundle["model"]`, a `HeldOutCalibratedClassifier`; calibrated on a held-out temporal slice, see
   [`calibration.md`](calibration.md)). The configured SLA targets make ~94%
@@ -91,5 +91,65 @@ capturing "about 80%". Those figures used a forest fitted on the full training w
 after the calibration fix the forest is fitted on 80% of it, ROC-AUC fell from 0.876 to 0.858, and the rule now
 captures 96% at 20% treated. Also found while producing them: the served isotonic calibrator (fitted on the
 forest's own training rows) had ROC-AUC 0.665 vs 0.986 raw; fixed in [`calibration.md`](calibration.md).
+
+## Randomized holdout (implemented) and how real uplift would be measured
+- **Deterministic randomizer** (`src/roi/randomizer.py`): a case's arm is a SHA-256 hash of `experiment_id:case_id`
+  mapped to [0, 1); below `holdout_share` (20%, `config/interventions.yaml`) it is **holdout**, otherwise
+  **treat**. It depends only on the ids, so it is repeatable (a retried request cannot flip a case), independent of
+  risk and of the caller, balanced, and re-randomized by changing the experiment id
+  (`tests/test_randomizer.py` asserts determinism, balance to within binomial error, boundary shares, independence
+  across experiments and across neighbouring ids).
+- `POST /interventions` applies it: a holdout case is logged with cost 0 and the response says
+  `assignment: "holdout", action_required: false`. `analytics.interventions` stores `assignment` and
+  `experiment_id` (migration 006). Holdout rows carry no cost or benefit in the ROI numbers.
+- `GET /roi/summary` gains an `experiment` block: breach rate per arm and, once each arm has >= 30 known outcomes,
+  the **measured** breach reduction (holdout minus treated) with a 95% CI. Today it is empty of outcomes: no real
+  case has been treated, so the assumed effects above remain assumptions.
+
+## Validated on semi-synthetic data
+Reproduce: `python -m scripts.uplift_validation` (about 3 minutes; raw JSON `reports/uplift_validation.json`).
+Real held-out-window covariates and real model risk scores, with a **planted, known, heterogeneous effect**: the
+action reduces breach probability by 0.05 for everyone, +0.20 more for the 5 busiest suppliers, and -0.10
+(it backfires) for cases starting with the most common first activity. Outcomes are simulated, assignment uses the
+randomizer at 50%, estimators are fitted on one half of the 600 cases and scored on the other (resampled to 4,000
+units per half, 20 replicates). Estimators: T-learner and X-learner (own implementation on scikit-learn,
+`src/roi/causal.py`; `econml`/`causalml` were not needed). Baselines: treat the highest model risk, and random.
+
+Acceptance criteria were fixed before the run: **A1** ATE within 0.02 of truth (difference-in-means and X-learner);
+**A2** CATE correlation with the true effect >= 0.5; **A3** the best learner's oracle Qini coefficient beats both
+"highest risk" and random. **All three pass in both scenarios.**
+
+| | p75 target (baseline risk 0.35) | Served model, 97% target (baseline risk 0.99) |
+|---|---|---|
+| True ATE | 0.0345 | 0.0687 |
+| Difference-in-means ATE (mean, sd over replicates) | 0.0305 (0.010) | 0.0707 (0.007) |
+| T-learner / X-learner mean tau_hat | 0.0368 / 0.0367 | 0.0690 / 0.0691 |
+| CATE RMSE, T / X | 0.063 / 0.063 | 0.037 / 0.037 |
+| CATE correlation with truth, T / X | 0.67 / 0.69 | 0.88 / 0.88 |
+| Oracle Qini coefficient: best possible / X / T | 84.4 / 60.1 / 58.8 | 78.2 / 72.6 / 71.9 |
+| ... treat highest model risk | **-13.3** | 17.2 |
+| ... random | -0.1 | 0.2 |
+| Breaches avoided by treating the top 20% (of 4,000 test cases; best possible / X / risk / random) | 126 / 95 / -7 / 27 | 151 / 146 / 73 / 55 |
+
+![Gain curves](uplift-qini.png)
+
+What it shows, and what it does not:
+- **The estimators recover the planted effect.** Average effect within 0.002-0.004 (p75) and 0.000-0.002 (served) of
+  truth, and the ranking they produce captures about 70% (p75) and 93% (served) of the best possible Qini
+  coefficient. Errors of the *individual* effect are larger (RMSE 0.063 against a mean effect of 0.035 on p75), so
+  use them to rank and to estimate averages, not to quote a per-case number.
+- **Risk is not uplift.** On the p75 scenario, treating the highest-risk cases is *worse than random* (Qini
+  coefficient -13): the backfire group (most common first activity) is over-represented among high-risk cases, so
+  risk-ranked triage sends the action where it hurts. On the 97% scenario risk ranking beats random only because
+  ~99% of cases are high-risk. That the naive rule loses this badly is a property of the planted structure (the
+  backfire group correlates with risk here); with an effect that grew with risk, risk-ranking would do well. The
+  point is that risk ranking cannot know which world it is in and uplift estimation can.
+- **Observed and oracle Qini agree** in sign and rough size (e.g. 65.6 vs 60.1 for the X-learner on p75), so the
+  observed-outcome Qini curve, the only one available with real data, is a usable evaluation.
+- **Limits:** covariates come from only 600 real cases resampled (300 unique profiles per half), so the learners
+  see far less covariate diversity than a real deployment; the planted effect is a simple function of two observed
+  variables and there is no interference or unobserved confounding (assignment is randomized by construction);
+  the X-learner is not consistently better than the T-learner here (differences inside one standard deviation).
+  This validates the *method*; it says nothing about whether real interventions work.
 
 Reproduce the ledger simulation: `python -m scripts.setup_database && python -m scripts.simulate_interventions`, then `GET /roi/summary`.
