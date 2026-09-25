@@ -16,6 +16,8 @@ models/*
 # "don't commit build artifacts", not an oversight.
 !models/sla_risk_model.joblib
 !models/sla_risk_model.meta.json
+!models/early_risk/
+!models/early_risk/*
 *.log
 .ipynb_checkpoints/
 *.pbix

@@ -1,5 +1,6 @@
 import logging
 import os
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,7 +16,16 @@ configure_logging()
 
 log = logging.getLogger(__name__)
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Startup work (seed the pipeline_runs history) before serving; replaces the deprecated
+    @app.on_event("startup") hook. Nothing to tear down on shutdown."""
+    await seed_pipeline_runs()
+    yield
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="Operations Performance API",
     description=(
         "Read-only analytics API over the Northstar Manufacturing procurement process. "
@@ -44,7 +54,6 @@ app.include_router(dashboard_router)
 app.include_router(router, dependencies=[Depends(require_api_key)])
 
 
-@app.on_event("startup")
 async def seed_pipeline_runs():
     """Seed analytics.pipeline_runs with historical ETL records if the table is empty.
 

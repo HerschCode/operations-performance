@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import PlainTextResponse
 import pandas as pd
 
-from src.api.db import load_events, load_cases, check_connection, get_engine, get_write_engine
+from src.api.db import load_events, load_cases, load_case_events, check_connection, get_engine, get_write_engine
 from src.api.auth import require_api_key, require_role
 from src.api.metrics import PREDICTIONS_TOTAL, render_metrics
 from src.api.schemas import (
@@ -26,6 +26,7 @@ from src.api.schemas import (
     FeatureDriftReportSchema,
     InterventionCreate,
     InterventionCreated,
+    EarlyRiskResponse,
 )
 from src.analytics.cycle_time import cycle_time_percentiles, stage_summary
 from src.analytics.bottlenecks import identify_bottlenecks
@@ -598,3 +599,52 @@ def roi_summary_endpoint():
     out = roi_summary(rows, load_policy())
     out["sensitivity"] = load_sensitivity()
     return out
+
+
+_EARLY_RISK_MODEL = None
+
+
+def _early_risk_model():
+    """ONNX ensembles loaded once per process (onnxruntime only; torch is not installed in serving)."""
+    global _EARLY_RISK_MODEL
+    if _EARLY_RISK_MODEL is None:
+        from src.ml.early_risk import EarlyRiskModel
+
+        _EARLY_RISK_MODEL = EarlyRiskModel.load()
+    return _EARLY_RISK_MODEL
+
+
+@router.get("/orders/{case_id}/early-risk", response_model=EarlyRiskResponse)
+def order_early_risk(case_id: str, k: int = Query(default=3, ge=2, le=5, description="Events seen so far: 2, 3 or 5")):
+    """EARLY-WARNING score from only the first k events of a case (GRU ensemble served through ONNX).
+
+    Not the same as /orders/{id}/risk: that one uses the whole case and is a late-stage triage score. This one
+    predicts breach of the training-window p75 cycle-time target (not the configured SLA) and is a weak signal --
+    the held-out ROC-AUC of the served model at this k is returned with every response."""
+    from src.ml.early_risk import EarlyRiskNotApplicable
+
+    cases = load_cases()
+    match = cases[cases["case_id"] == case_id]
+    if match.empty:
+        raise HTTPException(status_code=404, detail=f"No case found with case_id '{case_id}'")
+    try:
+        model = _early_risk_model()
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="No early-risk model available -- run scripts/export_early_risk.py")
+    if k not in model.available_k:
+        raise HTTPException(status_code=422, detail=f"k must be one of {model.available_k}")
+    try:
+        scored = model.score_case(match.iloc[0], load_case_events(case_id), cases, k)
+    except EarlyRiskNotApplicable as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    m = model.meta["models"][str(k)]
+    return EarlyRiskResponse(
+        case_id=case_id, k=k, breach_probability=round(scored["breach_probability"], 4),
+        target_definition=model.meta["target"]["definition"], target_hours=round(scored["target_hours"], 1),
+        elapsed_hours_at_k=round(scored["elapsed_hours_at_k"], 2),
+        test_roc_auc=round(m["test_roc_auc"], 4), test_roc_auc_ci95=[round(x, 4) for x in m["test_roc_auc_ci95"]],
+        base_rate=round(m["base_rate"], 4), n_test=m["n_test"],
+        model=f"GRU ensemble ({len(m['seeds'])} seeds), ONNX, first-{k}-events",
+        warning=(f"EARLY-WARNING, weak signal: held-out ROC-AUC {m['test_roc_auc']:.2f} at k={k} on a ~"
+                 f"{m['base_rate']:.0%} base-rate target. Not a late-stage triage score and not the configured SLA."),
+    )

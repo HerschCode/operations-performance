@@ -63,6 +63,16 @@ def load_events() -> pd.DataFrame:
     return df
 
 
+def load_case_events(case_id: str) -> pd.DataFrame:
+    """One case's events only (the early-risk endpoint does not need the whole event table)."""
+    from sqlalchemy import text
+
+    df = pd.read_sql(text("SELECT case_id, activity, timestamp FROM staging.events WHERE case_id = :c"),
+                     get_engine(), params={"c": case_id})
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    return df
+
+
 def load_cases() -> pd.DataFrame:
     engine = get_engine()
     df = pd.read_sql("SELECT * FROM analytics.process_cases", engine)

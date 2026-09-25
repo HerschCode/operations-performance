@@ -18,3 +18,4 @@ httpx>=0.27
 requests>=2.31
 google-cloud-bigquery>=3.20
 db-dtypes>=1.2
+onnxruntime>=1.17   # early-risk GRU serving (torch is deliberately NOT a serving dependency)

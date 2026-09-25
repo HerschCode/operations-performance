@@ -135,6 +135,21 @@ class FeatureDriftReportSchema(BaseModel):
     note: str | None = None
 
 
+class EarlyRiskResponse(BaseModel):
+    case_id: str
+    k: int                                   # events seen; the case is scored as of its k-th event
+    breach_probability: float                # P(cycle time above the p75 target), Platt-calibrated
+    target_definition: str
+    target_hours: float
+    elapsed_hours_at_k: float
+    test_roc_auc: float                      # held-out ROC-AUC of the SERVED ONNX ensemble at this k
+    test_roc_auc_ci95: list[float]
+    base_rate: float
+    n_test: int
+    model: str
+    warning: str
+
+
 class InterventionCreate(BaseModel):
     case_id: str
     intervention_type: str | None = None   # defaults to config/interventions.yaml default_type
