@@ -2,6 +2,15 @@
 
 ## Unreleased -- Post-v1.0.0 upgrade work
 
+### Dashboard documented; two data bugs fixed (2026-09-26)
+- `dashboard/README.md` replaces an unbuilt Power BI spec with the real `/dashboard` page, screenshots and caveats.
+- Conformance was 0% by construction: `config/process.yaml` used activity names absent from BPI 2019. Now the log's
+  most frequent variant (20.9% conformant). Golden-fixture tests pin their own textbook config; a regression test
+  checks expected activities exist in the log.
+- Supplier scorecard excludes 104 zero-duration (truncated) cases that made one supplier look instant.
+- API description no longer says "Read-only" (POST /interventions exists); CORS allows POST for it.
+- Dashboard text: unsourced "industry benchmark" relabelled; ROC-AUC shown with its degenerate-target caveat.
+
 ### Upgrade 4 + hygiene (2026-09-25)
 - `GET /orders/{case_id}/early-risk?k=` (additive): first-k-events GRU ensemble (3 seeds, k in 2/3/5, p75 target)
   exported to ONNX (`scripts/export_early_risk.py`, `src/ml/early_risk.py`), served with onnxruntime only --

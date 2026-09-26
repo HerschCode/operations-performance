@@ -3,7 +3,7 @@
 ![Tests](https://github.com/HerschCode/operations-performance/actions/workflows/test.yml/badge.svg)
 ![dbt](https://github.com/HerschCode/operations-performance/actions/workflows/dbt.yml/badge.svg)
 
-**Live API:** <https://operations-performance.onrender.com/docs> (Neon Postgres, real BPI 2019 procurement
+**Live dashboard:** <https://operations-performance.onrender.com/dashboard> ([what it shows](dashboard/README.md)) · **Live API:** <https://operations-performance.onrender.com/docs> (Neon Postgres, real BPI 2019 procurement
 data; free tier, the first request may be slow to wake). A conversational layer over the same data lives
 in [`operations-assistant`](https://operations-assistant.onrender.com).
 
@@ -46,6 +46,8 @@ public event log has no real interventions, business costs or SLAs, so those par
 assumptions or simulation wherever they appear.
 
 ![Architecture](docs/architecture.svg)
+
+[![Dashboard](dashboard/screenshots/dashboard-full.png)](dashboard/README.md)
 
 ## What's in it
 
