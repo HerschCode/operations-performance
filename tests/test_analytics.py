@@ -97,3 +97,14 @@ def test_supplier_scorecard_raises_without_supplier_column():
     cases_no_supplier = sample_cases().drop(columns=["supplier_id"])
     with pytest.raises(ValueError):
         supplier_scorecard(cases_no_supplier)
+
+
+def test_supplier_scorecard_ignores_zero_duration_cases():
+    import pandas as pd
+    from src.analytics.supplier_analysis import supplier_scorecard
+
+    cases = pd.DataFrame({"case_id": list("abcdefg"), "supplier_id": ["S"] * 5 + ["T"] * 2,
+                          "cycle_time_hours": [0, 0, 0, 100, 200, 50, 60], "sla_breach": [0, 0, 0, 1, 1, 0, 1]})
+    s = supplier_scorecard(cases, min_volume=2).set_index("supplier_id")
+    assert s.loc["S", "order_count"] == 2 and s.loc["S", "avg_cycle_time_hours"] == 150
+    assert s.loc["S", "sla_breach_rate"] == 1.0

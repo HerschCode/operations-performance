@@ -15,6 +15,8 @@ from src.transformation.build_process_cases import build_process_cases
 from src.analytics.sla_analysis import load_sla_targets, evaluate_sla, sla_summary
 from src.analytics.rework import rework_by_case
 from src.analytics.conformance import check_conformance, conformance_report
+
+TEXTBOOK = __import__('pathlib').Path(__file__).parent / 'fixtures' / 'process_textbook.yaml'
 from src.analytics.supplier_analysis import supplier_scorecard
 from src.analytics.bottlenecks import identify_bottlenecks
 from src.analytics.cycle_time import cycle_time_percentiles
@@ -70,7 +72,7 @@ def test_sla_breach_flags_correct_specific_cases(golden_pipeline):
 
 
 def test_rework_matches_hand_calculation(golden_pipeline):
-    rework = rework_by_case(golden_pipeline["cleaned"])
+    rework = rework_by_case(golden_pipeline["cleaned"], config_path=TEXTBOOK)
     rework_by_id = rework.set_index("case_id")
     assert rework_by_id.loc["GC03", "has_rework"] == True
     assert rework_by_id.loc["GC04", "has_rework"] == False  # allowed GR repeat, not rework
@@ -80,7 +82,7 @@ def test_rework_matches_hand_calculation(golden_pipeline):
 
 
 def test_conformance_matches_hand_calculation(golden_pipeline):
-    conformance = check_conformance(golden_pipeline["cleaned"])
+    conformance = check_conformance(golden_pipeline["cleaned"], config_path=TEXTBOOK)
     report = conformance_report(conformance)
     assert report["total_cases"] == 7
     assert report["conformant_cases"] == 4
@@ -97,7 +99,7 @@ def test_conformance_matches_hand_calculation(golden_pipeline):
 
 
 def test_conformance_flags_correct_specific_cases(golden_pipeline):
-    conformance = check_conformance(golden_pipeline["cleaned"]).set_index("case_id")
+    conformance = check_conformance(golden_pipeline["cleaned"], config_path=TEXTBOOK).set_index("case_id")
     assert conformance.loc["GC01", "is_conformant"] == True
     assert conformance.loc["GC02", "is_conformant"] == True
     assert conformance.loc["GC03", "is_conformant"] == False
@@ -195,3 +197,19 @@ def test_scenario_reduction_rejects_unknown_stage(golden_pipeline):
             golden_pipeline["cases"], golden_pipeline["cleaned"],
             "Nonexistent Stage -> Also Fake", 0.5, load_sla_targets(),
         )
+
+
+def test_production_expected_sequence_uses_activity_names_that_exist_in_the_log():
+    """Regression: config/process.yaml once listed textbook names absent from BPI 2019, making conformance 0% by
+    construction. Every expected activity must occur in the real sample log."""
+    import os
+    import yaml
+    import pandas as pd
+
+    path = os.environ.get("RAW_EVENT_LOG_PATH", "data/raw/bpi2019_events.csv")
+    if not os.path.exists(path):
+        import pytest
+        pytest.skip("raw event log not present")
+    names = set(pd.read_csv(path, usecols=["concept:name"])["concept:name"])
+    expected = yaml.safe_load(open("config/process.yaml"))["expected_sequence"]
+    assert set(expected) <= names, set(expected) - names

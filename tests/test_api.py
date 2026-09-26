@@ -184,7 +184,12 @@ def test_conformance_endpoint_against_golden_dataset(mock_load_events):
     cleaned, _ = clean_events(raw)
     mock_load_events.return_value = cleaned
 
-    response = client.get("/metrics/conformance")
+    # the golden cases use textbook activity names, so pin the textbook sequence (production config uses BPI names)
+    import src.analytics.conformance as conf
+    textbook = "tests/fixtures/process_textbook.yaml"
+    real = conf.load_expected_sequence
+    with patch.object(conf, "load_expected_sequence", lambda path=None: real(textbook)):
+        response = client.get("/metrics/conformance")
     assert response.status_code == 200
     body = response.json()
     # matches docs/data-correctness-audit.md's hand-derived answer exactly
@@ -248,3 +253,9 @@ def test_sla_risk_distribution_endpoint_404_on_no_data(mock_load_cases):
     mock_load_cases.return_value = pd.DataFrame()
     response = client.get("/metrics/sla-risk-distribution")
     assert response.status_code == 404
+
+
+def test_cors_preflight_allows_post_for_the_intervention_ledger():
+    r = client.options("/interventions", headers={"Origin": "http://localhost:3000",
+                                                  "Access-Control-Request-Method": "POST"})
+    assert r.status_code == 200 and "POST" in r.headers.get("access-control-allow-methods", "")

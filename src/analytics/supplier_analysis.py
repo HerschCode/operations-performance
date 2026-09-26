@@ -7,6 +7,12 @@ def supplier_scorecard(evaluated_cases: pd.DataFrame, min_volume: int = 5) -> pd
     if "supplier_id" not in evaluated_cases.columns:
         raise ValueError("cases dataframe has no supplier_id column")
 
+    # Cases with zero measured cycle time (96 single-event cases plus 8 whose events share one timestamp in the
+    # BPI 2019 sample) have no measurable duration -- they are truncated cases, not instant ones. Counting them
+    # made vendorID_0358 (94 such cases) look like the fastest, never-breaching supplier. Found 2026-09-26.
+    if "cycle_time_hours" in evaluated_cases.columns:
+        evaluated_cases = evaluated_cases[evaluated_cases["cycle_time_hours"] > 0]
+
     agg = {
         "case_id": "count",
         "cycle_time_hours": ["mean", "std"],
