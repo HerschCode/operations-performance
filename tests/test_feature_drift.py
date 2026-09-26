@@ -102,7 +102,7 @@ def test_endpoint_returns_report():
     fake = FeatureDriftReport("alert", [FeatureDrift("supplier_id", 1.2, "alert"),
                                         FeatureDrift("event_count", 0.3, "alert")], 500)
     with patch("src.ml.feature_drift.current_feature_drift", return_value=fake):
-        r = TestClient(app).get("/health/drift/features")
+        r = TestClient(app, headers={"X-API-Key": "test-key-do-not-use-in-production"}).get("/health/drift/features")
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "alert" and body["alert_features"] == ["supplier_id", "event_count"]

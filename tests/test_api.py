@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from src.api.main import app
 
-client = TestClient(app)
+client = TestClient(app, headers={"X-API-Key": "test-key-do-not-use-in-production"})
 
 
 def sample_cases():

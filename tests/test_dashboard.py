@@ -11,7 +11,7 @@ from unittest.mock import patch
 from src.api.main import app
 import src.api.dashboard as dashboard_module
 
-client = TestClient(app)
+client = TestClient(app, headers={"X-API-Key": "test-key-do-not-use-in-production"})
 
 
 def setup_function():

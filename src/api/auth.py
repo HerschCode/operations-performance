@@ -13,6 +13,9 @@ Backward compatible: the original single-secret API_KEY env var still works if s
 deployment's already-configured API_KEY doesn't silently stop working when this
 ships -- this project's live Render deployment is exactly that case.
 
+Fail-closed: if neither API_KEY nor API_KEYS is set, every request is rejected with 401.
+Set at least API_KEYS=dev:local123:admin for local development.
+
 Rotation: revoke a compromised key by removing its entry from API_KEYS and
 redeploying -- no code change needed, same operational model the single-key
 version already had.
@@ -81,10 +84,7 @@ async def require_api_key(request: Request, x_api_key: str = Header(default=None
     configured = _load_configured_keys()
 
     if not configured:
-        # No keys configured at all -- fail open for local development (matches
-        # this project's existing pattern of falling back to permissive defaults
-        # locally). A real deployment MUST set API_KEY or API_KEYS.
-        return
+        raise HTTPException(status_code=401, detail="Missing or invalid X-API-Key header")
 
     if not x_api_key:
         raise HTTPException(status_code=401, detail="Missing or invalid X-API-Key header")

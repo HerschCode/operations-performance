@@ -12,7 +12,7 @@ from src.roi.ledger import (
 
 POLICY = {"breach_cost": 400.0, "capacity_pct": 0.2, "default_type": "a",
           "types": {"a": {"cost": 25.0, "effect": 0.5}, "b": {"cost": 60.0, "effect": 0.1}}}
-client = TestClient(app)
+client = TestClient(app, headers={"X-API-Key": "test-key-do-not-use-in-production"})
 
 
 def test_real_policy_file_loads_and_is_labelled_as_assumptions():

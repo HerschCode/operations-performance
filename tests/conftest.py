@@ -33,7 +33,10 @@ import pytest
 @pytest.fixture(autouse=True)
 def _no_real_dotenv(monkeypatch):
     monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: False)
-    monkeypatch.delenv("API_KEY", raising=False)
+    # Set a fixed test key so auth is fail-closed (no unauthenticated requests
+    # accidentally pass) while still letting all non-auth tests succeed.
+    # Tests that want to exercise "no key configured" explicitly clear this.
+    monkeypatch.setenv("API_KEY", "test-key-do-not-use-in-production")
     monkeypatch.delenv("API_KEYS", raising=False)
 
 

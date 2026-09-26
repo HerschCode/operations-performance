@@ -12,7 +12,7 @@ from src.api.metrics import PREDICTIONS_TOTAL
 from src.ml.features import build_features
 from src.analytics.sla_analysis import load_sla_targets, evaluate_sla
 
-client = TestClient(app)
+client = TestClient(app, headers={"X-API-Key": "test-key-do-not-use-in-production"})
 
 
 def _sample_cases():

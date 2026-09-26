@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from src.api.main import app
 from src.ml import early_risk as er
 
-client = TestClient(app)
+client = TestClient(app, headers={"X-API-Key": "test-key-do-not-use-in-production"})
 META = json.loads((er.MODEL_DIR / er.META_NAME).read_text())
 
 

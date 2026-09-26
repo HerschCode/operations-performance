@@ -21,7 +21,7 @@ from src.cleaning.clean_events import clean_events
 from src.transformation.build_process_cases import build_process_cases
 from src.analytics.sla_analysis import load_sla_targets, evaluate_sla
 
-client = TestClient(app)
+client = TestClient(app, headers={"X-API-Key": "test-key-do-not-use-in-production"})
 
 
 def _golden_cases():

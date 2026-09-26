@@ -25,14 +25,10 @@ def test_health_never_requires_a_key(monkeypatch):
     assert response.status_code == 200
 
 
-def test_protected_endpoint_fails_open_when_no_key_configured(monkeypatch):
-    from unittest.mock import patch
+def test_protected_endpoint_fails_closed_when_no_key_configured(monkeypatch):
     client = _client_with_api_key(monkeypatch, None)
-    with patch("src.api.routes.load_cases") as mock_load_cases:
-        import pandas as pd
-        mock_load_cases.return_value = pd.DataFrame({"case_id": ["C1"], "cycle_time_hours": [10.0]})
-        response = client.get("/metrics/cycle-time")
-    assert response.status_code == 200  # no API_KEY set -> auth fails open
+    response = client.get("/metrics/cycle-time")
+    assert response.status_code == 401  # no API_KEY set -> fail closed
 
 
 def test_protected_endpoint_rejects_missing_header_when_key_configured(monkeypatch):
