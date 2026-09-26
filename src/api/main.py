@@ -28,7 +28,8 @@ app = FastAPI(
     lifespan=lifespan,
     title="Operations Performance API",
     description=(
-        "Read-only analytics API over the Northstar Manufacturing procurement process. "
+        "Analytics API over the Northstar Manufacturing procurement process. Read-only except the "
+        "admin-only intervention ledger (POST /interventions). "
         "Wraps the same analytics/ML logic used by the local pipeline and dashboard, so "
         "there's one source of truth for every number -- including for operations-assistant, "
         "which consumes these endpoints as agent tools rather than reimplementing the logic."
@@ -43,7 +44,7 @@ app.add_middleware(
     # Falls back to localhost-only if unset, rather than defaulting to "*" -- an analytics API
     # exposing operational data shouldn't be open to any origin by default, even in early dev.
     allow_origins=os.environ.get("API_ALLOWED_ORIGINS", "http://localhost:3000").split(","),
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],   # POST: the admin-only intervention ledger
     allow_headers=["*"],
 )
 

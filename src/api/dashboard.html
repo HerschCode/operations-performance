@@ -370,10 +370,10 @@
     </div>
     <div class="explainer-body">
       <p>This dashboard shows live procurement process data for <strong>Northstar Manufacturing</strong>.</p>
-      <p><strong>Cycle Time</strong> — how long it takes from purchase order creation to delivery. The industry benchmark for manufacturing procurement is 30–60 days. Northstar's average is highlighted.</p>
-      <p><strong>SLA Breach Rate</strong> — the % of orders that exceeded their agreed delivery deadline. Above 15% is a serious operational problem.</p>
+      <p><strong>Cycle Time</strong> — how long it takes from purchase order creation to delivery. The 30-day reference line is an illustrative internal target, not a sourced industry benchmark. Northstar's average is highlighted.</p>
+      <p><strong>SLA Breach Rate</strong> — the % of orders that exceeded their agreed delivery deadline. The 15% line is an illustrative target. Note: the configured SLA targets (10–14 days) sit far below this dataset's real cycle times, so ~94% of cases breach; see the project's evaluation docs.</p>
       <p><strong>Bottlenecks</strong> — which process stages cause the most delay, ranked by average hours spent there. The top stage explains most SLA breaches.</p>
-      <p><strong>SLA Risk</strong> — each order is scored LOW / MEDIUM / HIGH by a calibrated Random Forest model (ROC-AUC 0.983) trained on historical breach patterns. Risk score ≠ breach rate: the distribution shows predicted likelihood, not confirmed outcome.</p>
+      <p><strong>SLA Risk</strong> — each order is scored LOW / MEDIUM / HIGH by a calibrated Random Forest model trained on historical breach patterns. Its ROC-AUC shown below (~0.98) is on the configured 97%-breach target and is inflated; on realistic targets it is 0.83–0.89, and it is a late-stage score (most of its signal comes from features known late in a case). Risk score ≠ breach rate: the distribution shows predicted likelihood, not confirmed outcome.</p>
       <p><strong>Orders Needing Attention</strong> — the top HIGH-risk orders ranked by predicted breach probability. Each order shows SHAP feature attributions: signed, per-instance contributions from the model (positive = pushed breach probability up, negative = pushed it down), ranked by magnitude.</p>
       <p><strong>Supplier Performance</strong> — which suppliers are slowest and which breach SLA most often. Click any column header to re-sort. A <span class="pill worst" style="position:relative;top:-1px">worst</span> badge marks the highest breach-rate supplier.</p>
       <p><strong>Recommended Actions</strong> — synthesised from the data above: the highest-impact interventions given current breach rate, top bottleneck, and worst-performing supplier.</p>
@@ -570,7 +570,7 @@ function renderKpis(ov) {
       label: 'Avg Cycle Time',
       value: fmt(ov.mean_cycle_hours) + 'h',
       valueCls: isAboveBenchmark ? 'warn' : '',
-      ctx: days + ' days · ' + mult + '× 30-day benchmark',
+      ctx: days + ' days · ' + mult + '× 30-day reference',
       ctxCls: isAboveBenchmark ? 'warn' : 'good',
     },
     {
@@ -873,7 +873,7 @@ function renderActions(data) {
     const mult = (ov.mean_cycle_hours / 24 / 30).toFixed(1);
     actions.push({
       icon: '🟡',
-      strong: `Reduce average cycle time — currently ${mult}× the 30-day benchmark`,
+      strong: `Reduce average cycle time — currently ${mult}× the 30-day reference`,
       detail: `Mean ${fmt(ov.mean_cycle_hours)}h (${(ov.mean_cycle_hours/24).toFixed(1)} days). Target: under 720h. Focus on the top bottleneck stage and high-rework suppliers first.`,
     });
   }
